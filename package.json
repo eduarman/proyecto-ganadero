@@ -1,0 +1,14 @@
+{
+  "name": "proyecto-ganadero",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "corepack pnpm --filter web dev",
+    "build": "corepack pnpm --filter web build",
+    "preview": "corepack pnpm --filter web preview"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

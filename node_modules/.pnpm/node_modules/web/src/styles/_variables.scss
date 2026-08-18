@@ -1,0 +1,28 @@
+// Overrides de variables de Bootstrap 5 con la paleta del diseño
+// (Diseño Maqueta Sistema Ganadero — Claude Design). No se edita el core de Bootstrap.
+
+$font-family-sans-serif:
+  'Plus Jakarta Sans',
+  -apple-system,
+  BlinkMacSystemFont,
+  sans-serif;
+
+$primary: #606c38; // verde oliva — acciones/activo
+$dark: #283618; // verde muy oscuro — sidebar, hero, texto base
+$body-bg: #f7f7f7;
+$body-color: #283618;
+
+$border-radius: 0.75rem;
+$border-radius-sm: 0.5rem;
+$border-radius-lg: 1rem;
+$border-radius-xl: 1.25rem;
+$border-radius-pill: 999px;
+
+$input-border-color: #e6e6e6;
+$input-bg: #f7f7f7;
+
+$link-color: $primary;
+$link-hover-color: $dark;
+
+$enable-shadows: false;
+$enable-negative-margins: true;
