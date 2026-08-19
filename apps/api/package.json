@@ -16,9 +16,6 @@
   "prisma": {
     "seed": "ts-node prisma/seed.ts"
   },
-  "pnpm": {
-    "onlyBuiltDependencies": ["@prisma/client", "@prisma/engines", "argon2", "prisma"]
-  },
   "jest": {
     "moduleFileExtensions": ["js", "json", "ts"],
     "rootDir": "src",

@@ -1,0 +1,9 @@
+# Existe solo para declarar settings de pnpm en este paquete (no es un
+# workspace real con "packages:") — necesario porque el builder de Railway
+# aísla "apps/api" del resto del monorepo (Root Directory), así que no ve el
+# pnpm-workspace.yaml de la raíz del repo.
+allowBuilds:
+  '@prisma/client': true
+  '@prisma/engines': true
+  argon2: true
+  prisma: true
