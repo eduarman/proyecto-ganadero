@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue';
+import { isAxiosError } from 'axios';
 import { useForm, useField } from 'vee-validate';
 import { useRouter } from 'vue-router';
 import { useBreakpoint } from '../../../shared/composables/useBreakpoint';
@@ -17,22 +18,19 @@ const { handleSubmit, isSubmitting } = useForm({ validationSchema: loginSchema }
 const { value: email, errorMessage: emailError } = useField<string>('email');
 const { value: password, errorMessage: passwordError } = useField<string>('password');
 const remember = ref(false);
+const formError = ref('');
 
-const roles = ['Veterinario', 'Administrador', 'Gerente'];
-
-async function enter() {
-  await new Promise((resolve) => setTimeout(resolve, 500));
-  auth.login();
-  router.push('/dashboard');
-}
-
-const onSubmit = handleSubmit(async () => {
-  await enter();
+const onSubmit = handleSubmit(async (values) => {
+  formError.value = '';
+  try {
+    await auth.login(values.email, values.password);
+    router.push('/dashboard');
+  } catch (error) {
+    formError.value = isAxiosError(error)
+      ? (error.response?.data as { message?: string } | undefined)?.message ?? 'No se pudo iniciar sesión.'
+      : 'No se pudo iniciar sesión.';
+  }
 });
-
-async function enterAsRole() {
-  await enter();
-}
 </script>
 
 <template>
@@ -69,27 +67,10 @@ async function enterAsRole() {
           <a href="#" class="login-form__link">¿Olvidaste tu contraseña?</a>
         </div>
 
+        <div v-if="formError" class="login-form__error login-form__error--form">{{ formError }}</div>
+
         <button type="submit" class="login-form__submit" :disabled="isSubmitting">
           {{ isSubmitting ? 'Ingresando…' : 'Ingresar' }}
-        </button>
-      </div>
-
-      <div class="login-form__divider">
-        <span class="login-form__divider-line" />
-        <span class="login-form__divider-text">o ingresa como</span>
-        <span class="login-form__divider-line" />
-      </div>
-
-      <div class="login-form__roles">
-        <button
-          v-for="role in roles"
-          :key="role"
-          type="button"
-          class="login-form__role"
-          :disabled="isSubmitting"
-          @click="enterAsRole"
-        >
-          {{ role }}
         </button>
       </div>
     </form>
@@ -193,44 +174,8 @@ async function enterAsRole() {
     }
   }
 
-  &__divider {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-  }
-
-  &__divider-line {
-    flex: 1;
-    height: 1px;
-    background: var(--color-border);
-  }
-
-  &__divider-text {
-    font-size: 0.72rem;
-    color: rgba(40, 54, 24, 0.45);
-  }
-
-  &__roles {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 0.6rem;
-  }
-
-  &__role {
-    border: 1.5px solid var(--color-border);
-    background: var(--color-white);
-    border-radius: 12px;
-    padding: 0.6rem 0.4rem;
-    font-size: 0.72rem;
-    font-weight: 700;
-    color: var(--color-dark);
-    cursor: pointer;
-    font-family: inherit;
-
-    &:disabled {
-      opacity: 0.6;
-      cursor: progress;
-    }
+  &__error--form {
+    text-align: center;
   }
 }
 </style>

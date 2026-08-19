@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import ResponsiveShell from '../shared/components/ResponsiveShell.vue';
+import { useAuthStore } from '../stores/auth.store';
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -125,6 +126,30 @@ const router = createRouter({
       ],
     },
   ],
+});
+
+// El access token vive solo en memoria: al recargar la página se pierde, así
+// que la primera navegación intenta restaurar la sesión vía refresh cookie
+// antes de decidir si redirige a /login.
+let sessionRestoreAttempted = false;
+
+router.beforeEach(async (to) => {
+  const auth = useAuthStore();
+
+  if (!sessionRestoreAttempted) {
+    sessionRestoreAttempted = true;
+    await auth.restoreSession();
+  }
+
+  if (to.name !== 'login' && !auth.isAuthenticated) {
+    return { name: 'login' };
+  }
+
+  if (to.name === 'login' && auth.isAuthenticated) {
+    return { path: '/dashboard' };
+  }
+
+  return true;
 });
 
 export default router;

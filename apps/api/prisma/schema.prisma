@@ -1,0 +1,176 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Nivel plataforma (sin tenant_id) — ver .claude/steering/subscriptions.md
+// ---------------------------------------------------------------------------
+
+enum EstadoCuenta {
+  PERIODO_PRUEBA
+  ACTIVA
+  SUSPENDIDA
+  CANCELADA
+}
+
+model Plan {
+  id             String  @id @default(uuid())
+  nombre         String  @unique
+  maxUsuarios    Int     @map("max_usuarios")
+  maxNegocios    Int     @map("max_negocios")
+  precioMensual  Decimal @map("precio_mensual") @db.Decimal(10, 2)
+
+  cuentas Cuenta[]
+
+  @@map("planes")
+}
+
+model Cuenta {
+  id              String       @id @default(uuid())
+  emailTitular    String       @map("email_titular")
+  planId          String       @map("plan_id")
+  estado          EstadoCuenta @default(PERIODO_PRUEBA)
+  fechaInicio     DateTime     @default(now()) @map("fecha_inicio")
+  fechaRenovacion DateTime?    @map("fecha_renovacion")
+  metodoPagoRef   String?      @map("metodo_pago_ref")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+
+  plan     Plan      @relation(fields: [planId], references: [id])
+  negocios Negocio[]
+  usuarios Usuario[]
+
+  @@map("cuentas")
+}
+
+enum EstadoNegocio {
+  ACTIVO
+  INACTIVO
+}
+
+model Negocio {
+  id        String        @id @default(uuid())
+  cuentaId  String        @map("cuenta_id")
+  nombre    String
+  estado    EstadoNegocio @default(ACTIVO)
+  createdAt DateTime      @default(now()) @map("created_at")
+  updatedAt DateTime      @updatedAt @map("updated_at")
+
+  cuenta          Cuenta           @relation(fields: [cuentaId], references: [id])
+  usuarioNegocios UsuarioNegocio[]
+  ultimoDeUsuario Usuario[]        @relation("UltimoNegocio")
+
+  @@map("negocios")
+}
+
+model Usuario {
+  id                 String    @id @default(uuid())
+  email              String    @unique
+  passwordHash       String    @map("password_hash")
+  nombre             String
+  emailVerificadoEn  DateTime? @map("email_verificado_en")
+  twoFactorEnabled   Boolean   @default(false) @map("two_factor_enabled")
+  cuentaId           String    @map("cuenta_id")
+  ultimoNegocioId    String?   @map("ultimo_negocio_id")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  cuenta               Cuenta                 @relation(fields: [cuentaId], references: [id])
+  ultimoNegocio        Negocio?               @relation("UltimoNegocio", fields: [ultimoNegocioId], references: [id])
+  usuarioNegocios      UsuarioNegocio[]
+  refreshTokens        RefreshToken[]
+  tokensRecuperacion   TokenRecuperacion[]
+  tokensVerificacion   TokenVerificacionEmail[]
+
+  @@map("usuarios")
+}
+
+enum RolUsuario {
+  SUPER_ADMIN
+  ADMIN_NEGOCIO
+  MAYORDOMO
+  OPERARIO
+  VETERINARIO_EXTERNO
+}
+
+model UsuarioNegocio {
+  id        String     @id @default(uuid())
+  usuarioId String     @map("usuario_id")
+  negocioId String     @map("negocio_id")
+  rol       RolUsuario
+  createdAt DateTime   @default(now()) @map("created_at")
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id])
+  negocio Negocio @relation(fields: [negocioId], references: [id])
+
+  @@unique([usuarioId, negocioId])
+  @@map("usuario_negocio")
+}
+
+// ---------------------------------------------------------------------------
+// Auth: tokens y auditoría de login — ver .claude/specs/auth-login/design.md
+// ---------------------------------------------------------------------------
+
+model RefreshToken {
+  id          String    @id @default(uuid())
+  usuarioId   String    @map("usuario_id")
+  tokenHash   String    @unique @map("token_hash")
+  familiaId   String    @map("familia_id")
+  revocadoEn  DateTime? @map("revocado_en")
+  expiraEn    DateTime  @map("expira_en")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id])
+
+  @@index([usuarioId])
+  @@index([familiaId])
+  @@map("refresh_tokens")
+}
+
+model TokenRecuperacion {
+  id        String    @id @default(uuid())
+  usuarioId String    @map("usuario_id")
+  tokenHash String    @unique @map("token_hash")
+  expiraEn  DateTime  @map("expira_en")
+  usadoEn   DateTime? @map("usado_en")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id])
+
+  @@index([usuarioId])
+  @@map("tokens_recuperacion")
+}
+
+// No listada explícitamente en auth-login/design.md; necesaria para
+// POST /auth/verificar-email y /auth/reenviar-verificacion (mismo patrón
+// que TokenRecuperacion).
+model TokenVerificacionEmail {
+  id        String    @id @default(uuid())
+  usuarioId String    @map("usuario_id")
+  tokenHash String    @unique @map("token_hash")
+  expiraEn  DateTime  @map("expira_en")
+  usadoEn   DateTime? @map("usado_en")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id])
+
+  @@index([usuarioId])
+  @@map("tokens_verificacion_email")
+}
+
+model IntentoLogin {
+  id        String   @id @default(uuid())
+  email     String
+  ip        String
+  exitoso   Boolean
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([email, createdAt])
+  @@index([ip, createdAt])
+  @@map("intentos_login")
+}

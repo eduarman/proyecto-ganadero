@@ -9,8 +9,8 @@ const router = useRouter();
 
 const roleOptions = ['Administrador', 'Veterinario', 'Gerente', 'Capataz'];
 
-function logout() {
-  auth.logout();
+async function logout() {
+  await auth.logout();
   router.push('/login');
 }
 </script>
