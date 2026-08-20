@@ -4,6 +4,7 @@ import { isAxiosError } from 'axios';
 import { useBreakpoint } from '../../../shared/composables/useBreakpoint';
 import AppIcon from '../../../shared/components/AppIcon.vue';
 import { ganadoApi, type Animal, type MotivoBaja, type SexoAnimal } from '../services/ganado.api';
+import { potrerosApi, type Potrero } from '../../potreros/services/potreros.api';
 
 const { isMobile } = useBreakpoint();
 
@@ -15,6 +16,12 @@ const loading = ref(true);
 const saving = ref(false);
 const errorMsg = ref('');
 const animales = ref<Animal[]>([]);
+const potreros = ref<Potrero[]>([]);
+
+function nombrePotrero(id: string | null): string {
+  if (!id) return 'Sin asignar';
+  return potreros.value.find((p) => p.id === id)?.nombre ?? 'Sin asignar';
+}
 
 const MOTIVO_BAJA_LABELS: Record<MotivoBaja, string> = {
   VENTA: 'Venta',
@@ -46,8 +53,12 @@ function formatFecha(iso: string | null) {
 async function cargar() {
   loading.value = true;
   try {
-    const resp = await ganadoApi.listar({ limit: 100 });
+    const [resp, potrerosResp] = await Promise.all([
+      ganadoApi.listar({ limit: 100 }),
+      potrerosApi.listar(),
+    ]);
     animales.value = resp.data;
+    potreros.value = potrerosResp.filter((p) => p.estado === 'ACTIVO');
     if (!animales.value.some((a) => a.id === activeId.value)) {
       activeId.value = animales.value[0]?.id ?? null;
     }
@@ -83,7 +94,7 @@ const form = ref({
   fechaNacimiento: '',
   padreRefExterna: '',
   madreRefExterna: '',
-  potreroActual: '',
+  potreroActualId: '',
 });
 
 function resetForm() {
@@ -94,7 +105,7 @@ function resetForm() {
     fechaNacimiento: '',
     padreRefExterna: '',
     madreRefExterna: '',
-    potreroActual: '',
+    potreroActualId: '',
   };
 }
 
@@ -114,7 +125,7 @@ function abrirEdicion(animal: Animal) {
     fechaNacimiento: animal.fechaNacimiento ? animal.fechaNacimiento.slice(0, 10) : '',
     padreRefExterna: animal.padreRefExterna ?? '',
     madreRefExterna: animal.madreRefExterna ?? '',
-    potreroActual: animal.potreroActual ?? '',
+    potreroActualId: animal.potreroActualId ?? '',
   };
   errorMsg.value = '';
   showForm.value = true;
@@ -133,7 +144,7 @@ async function guardar() {
       fechaNacimiento: form.value.fechaNacimiento || undefined,
       padreRefExterna: form.value.padreRefExterna || undefined,
       madreRefExterna: form.value.madreRefExterna || undefined,
-      potreroActual: form.value.potreroActual || undefined,
+      potreroActualId: form.value.potreroActualId || undefined,
     };
     const guardado = editandoId.value
       ? await ganadoApi.actualizar(editandoId.value, payload)
@@ -244,7 +255,10 @@ async function confirmarBaja() {
         </div>
         <div class="ganado-view__field">
           <label>Potrero actual</label>
-          <input v-model="form.potreroActual" placeholder="Potrero 3" />
+          <select v-model="form.potreroActualId">
+            <option value="">Sin asignar</option>
+            <option v-for="p in potreros" :key="p.id" :value="p.id">{{ p.nombre }}</option>
+          </select>
         </div>
       </div>
       <div class="ganado-view__form-actions">
@@ -323,7 +337,7 @@ async function confirmarBaja() {
             </div>
             <div>
               <div class="ganado-view__acc-birth">
-                Nacida {{ formatFecha(c.fechaNacimiento) }} · {{ c.potreroActual ?? 'Sin potrero asignado' }}
+                Nacida {{ formatFecha(c.fechaNacimiento) }} · {{ nombrePotrero(c.potreroActualId) }}
               </div>
               <div class="ganado-view__acc-avg">{{ c.categoria ?? 'Categoría sin calcular' }}</div>
             </div>
@@ -395,7 +409,7 @@ async function confirmarBaja() {
               {{ selected.raza ?? 'Raza sin registrar' }} · Nacida {{ formatFecha(selected.fechaNacimiento) }}
             </div>
             <div class="ganado-view__detail-line">
-              Potrero actual: {{ selected.potreroActual ?? 'Sin asignar' }}
+              Potrero actual: {{ nombrePotrero(selected.potreroActualId) }}
             </div>
             <div class="ganado-view__detail-actions">
               <button type="button" class="ganado-view__btn-ghost" @click="abrirEdicion(selected)">

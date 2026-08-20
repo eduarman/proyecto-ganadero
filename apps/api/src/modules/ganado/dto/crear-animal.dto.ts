@@ -6,6 +6,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  IsUUID,
   MaxLength,
   Min,
 } from 'class-validator';
@@ -61,7 +62,6 @@ export class CrearAnimalDto {
   fotoUrl?: string;
 
   @IsOptional()
-  @IsString()
-  @MaxLength(100)
-  potreroActual?: string;
+  @IsUUID()
+  potreroActualId?: string;
 }

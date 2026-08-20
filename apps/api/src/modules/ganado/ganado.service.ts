@@ -48,7 +48,7 @@ export class GanadoService {
         madreRefExterna: dto.madreRefExterna,
         padreRefExterna: dto.padreRefExterna,
         fotoUrl: dto.fotoUrl,
-        potreroActual: dto.potreroActual,
+        potreroActualId: dto.potreroActualId,
       },
     });
   }

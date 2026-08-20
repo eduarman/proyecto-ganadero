@@ -65,6 +65,7 @@ model Negocio {
   usuarioNegocios UsuarioNegocio[]
   ultimoDeUsuario Usuario[]        @relation("UltimoNegocio")
   animales        Animal[]
+  potreros        Potrero[]
 
   @@map("negocios")
 }
@@ -216,18 +217,19 @@ model Animal {
   raza              String?
   color             String?
   pesoNacimiento    Decimal?     @map("peso_nacimiento") @db.Decimal(6, 2)
-  // Padre/madre y potrero como texto libre por ahora — sin vincular a otros
-  // animales del sistema ni al módulo potreros (todavía no existen).
+  // Padre/madre como texto libre por ahora — sin vincular a otros animales
+  // del sistema (árbol genealógico real, diferido).
   madreRefExterna   String?      @map("madre_ref_externa")
   padreRefExterna   String?      @map("padre_ref_externa")
   fotoUrl           String?      @map("foto_url")
-  potreroActual     String?      @map("potrero_actual")
+  potreroActualId   String?      @map("potrero_actual_id")
   estado            EstadoAnimal @default(ACTIVO)
   createdAt         DateTime     @default(now()) @map("created_at")
   updatedAt         DateTime     @updatedAt @map("updated_at")
 
-  negocio Negocio      @relation(fields: [tenantId], references: [id])
-  bajas   AnimalBaja[]
+  negocio       Negocio      @relation(fields: [tenantId], references: [id])
+  potreroActual Potrero?     @relation(fields: [potreroActualId], references: [id])
+  bajas         AnimalBaja[]
 
   @@unique([tenantId, identificador])
   @@index([tenantId, estado])
@@ -248,4 +250,31 @@ model AnimalBaja {
 
   @@index([tenantId, animalId])
   @@map("animal_bajas")
+}
+
+// ---------------------------------------------------------------------------
+// Potreros — ver .claude/specs/potreros/design.md
+// ---------------------------------------------------------------------------
+
+enum EstadoPotrero {
+  ACTIVO
+  INACTIVO
+}
+
+model Potrero {
+  id              String        @id @default(uuid())
+  tenantId        String        @map("tenant_id")
+  nombre          String
+  areaHectareas   Decimal       @map("area_hectareas") @db.Decimal(8, 2)
+  tipoPasto       String?       @map("tipo_pasto")
+  capacidadCarga  Decimal?      @map("capacidad_carga") @db.Decimal(6, 2)
+  estado          EstadoPotrero @default(ACTIVO)
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  negocio  Negocio  @relation(fields: [tenantId], references: [id])
+  animales Animal[]
+
+  @@unique([tenantId, nombre])
+  @@map("potreros")
 }

@@ -19,7 +19,7 @@ export interface Animal {
   madreRefExterna: string | null;
   padreRefExterna: string | null;
   fotoUrl: string | null;
-  potreroActual: string | null;
+  potreroActualId: string | null;
   estado: EstadoAnimal;
   createdAt: string;
   updatedAt: string;
@@ -34,7 +34,7 @@ export interface CrearAnimalPayload {
   color?: string;
   madreRefExterna?: string;
   padreRefExterna?: string;
-  potreroActual?: string;
+  potreroActualId?: string;
 }
 
 export interface ListaAnimales {

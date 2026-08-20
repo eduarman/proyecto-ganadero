@@ -5,6 +5,7 @@ import { AppConfigModule } from './config/app-config.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { GanadoModule } from './modules/ganado/ganado.module';
+import { PotrerosModule } from './modules/potreros/potreros.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { GanadoModule } from './modules/ganado/ganado.module';
     }),
     AuthModule,
     GanadoModule,
+    PotrerosModule,
   ],
   providers: [
     {
