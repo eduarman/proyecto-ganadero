@@ -6,6 +6,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { GanadoModule } from './modules/ganado/ganado.module';
 import { PotrerosModule } from './modules/potreros/potreros.module';
+import { SanidadModule } from './modules/sanidad/sanidad.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { PotrerosModule } from './modules/potreros/potreros.module';
     AuthModule,
     GanadoModule,
     PotrerosModule,
+    SanidadModule,
   ],
   providers: [
     {

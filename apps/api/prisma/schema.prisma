@@ -66,6 +66,8 @@ model Negocio {
   ultimoDeUsuario Usuario[]        @relation("UltimoNegocio")
   animales        Animal[]
   potreros        Potrero[]
+  productosSanitarios  ProductoSanitario[]
+  aplicacionesSanitarias AplicacionSanitaria[]
 
   @@map("negocios")
 }
@@ -88,6 +90,7 @@ model Usuario {
   refreshTokens        RefreshToken[]
   tokensRecuperacion   TokenRecuperacion[]
   tokensVerificacion   TokenVerificacionEmail[]
+  aplicacionesSanitarias AplicacionSanitaria[]
 
   @@map("usuarios")
 }
@@ -230,6 +233,7 @@ model Animal {
   negocio       Negocio      @relation(fields: [tenantId], references: [id])
   potreroActual Potrero?     @relation(fields: [potreroActualId], references: [id])
   bajas         AnimalBaja[]
+  aplicacionesSanitarias AplicacionSanitaria[]
 
   @@unique([tenantId, identificador])
   @@index([tenantId, estado])
@@ -277,4 +281,60 @@ model Potrero {
 
   @@unique([tenantId, nombre])
   @@map("potreros")
+}
+
+// ---------------------------------------------------------------------------
+// Sanidad — ver .claude/specs/sanidad/design.md
+// ---------------------------------------------------------------------------
+
+enum TipoProductoSanitario {
+  VACUNA
+  ANTIPARASITARIO
+  MEDICAMENTO
+  OTRO
+}
+
+enum EstadoProductoSanitario {
+  ACTIVO
+  INACTIVO
+}
+
+model ProductoSanitario {
+  id                     String                  @id @default(uuid())
+  tenantId               String                  @map("tenant_id")
+  nombre                 String
+  tipo                   TipoProductoSanitario
+  dosisRecomendada       String?                 @map("dosis_recomendada")
+  intervaloRefuerzoDias  Int?                    @map("intervalo_refuerzo_dias")
+  estado                 EstadoProductoSanitario @default(ACTIVO)
+  createdAt              DateTime                @default(now()) @map("created_at")
+  updatedAt              DateTime                @updatedAt @map("updated_at")
+
+  negocio      Negocio                @relation(fields: [tenantId], references: [id])
+  aplicaciones AplicacionSanitaria[]
+
+  @@unique([tenantId, nombre])
+  @@map("productos_sanitarios")
+}
+
+model AplicacionSanitaria {
+  id                   String    @id @default(uuid())
+  tenantId             String    @map("tenant_id")
+  animalId             String    @map("animal_id")
+  productoId           String    @map("producto_id")
+  fecha                DateTime
+  dosisAplicada        String?   @map("dosis_aplicada")
+  responsableId        String    @map("responsable_id")
+  proximaFechaEsperada DateTime? @map("proxima_fecha_esperada")
+  observaciones        String?
+  createdAt            DateTime  @default(now()) @map("created_at")
+
+  negocio     Negocio           @relation(fields: [tenantId], references: [id])
+  animal      Animal            @relation(fields: [animalId], references: [id])
+  producto    ProductoSanitario @relation(fields: [productoId], references: [id])
+  responsable Usuario           @relation(fields: [responsableId], references: [id])
+
+  @@index([tenantId, animalId])
+  @@index([tenantId, proximaFechaEsperada])
+  @@map("aplicaciones_sanitarias")
 }
