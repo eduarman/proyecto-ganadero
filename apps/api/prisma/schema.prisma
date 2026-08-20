@@ -68,6 +68,8 @@ model Negocio {
   potreros        Potrero[]
   productosSanitarios  ProductoSanitario[]
   aplicacionesSanitarias AplicacionSanitaria[]
+  registrosLeche       RegistroLeche[]
+  registrosLecheTotal  RegistroLecheTotal[]
 
   @@map("negocios")
 }
@@ -91,6 +93,8 @@ model Usuario {
   tokensRecuperacion   TokenRecuperacion[]
   tokensVerificacion   TokenVerificacionEmail[]
   aplicacionesSanitarias AplicacionSanitaria[]
+  registrosLeche       RegistroLeche[]
+  registrosLecheTotal  RegistroLecheTotal[]
 
   @@map("usuarios")
 }
@@ -234,6 +238,7 @@ model Animal {
   potreroActual Potrero?     @relation(fields: [potreroActualId], references: [id])
   bajas         AnimalBaja[]
   aplicacionesSanitarias AplicacionSanitaria[]
+  registrosLeche RegistroLeche[]
 
   @@unique([tenantId, identificador])
   @@index([tenantId, estado])
@@ -337,4 +342,52 @@ model AplicacionSanitaria {
   @@index([tenantId, animalId])
   @@index([tenantId, proximaFechaEsperada])
   @@map("aplicaciones_sanitarias")
+}
+
+// ---------------------------------------------------------------------------
+// Producción — ver .claude/specs/produccion/design.md
+// ---------------------------------------------------------------------------
+
+enum TurnoOrdenio {
+  MANANA
+  TARDE
+  UNICO
+}
+
+model RegistroLeche {
+  id            String       @id @default(uuid())
+  tenantId      String       @map("tenant_id")
+  animalId      String       @map("animal_id")
+  fecha         DateTime
+  turno         TurnoOrdenio
+  litros        Decimal      @db.Decimal(6, 2)
+  registradoPor String       @map("registrado_por")
+  createdAt     DateTime     @default(now()) @map("created_at")
+
+  negocio     Negocio @relation(fields: [tenantId], references: [id])
+  animal      Animal  @relation(fields: [animalId], references: [id])
+  registrador Usuario @relation(fields: [registradoPor], references: [id])
+
+  @@unique([tenantId, animalId, fecha, turno])
+  @@index([tenantId, fecha])
+  @@map("registros_leche")
+}
+
+// Carga rápida del total de tanque por turno, sin desglosar por animal —
+// alternativa a `RegistroLeche` para negocios que no miden por vaca.
+model RegistroLecheTotal {
+  id            String       @id @default(uuid())
+  tenantId      String       @map("tenant_id")
+  fecha         DateTime
+  turno         TurnoOrdenio
+  litrosTotal   Decimal      @map("litros_total") @db.Decimal(8, 2)
+  registradoPor String       @map("registrado_por")
+  createdAt     DateTime     @default(now()) @map("created_at")
+
+  negocio     Negocio @relation(fields: [tenantId], references: [id])
+  registrador Usuario @relation(fields: [registradoPor], references: [id])
+
+  @@unique([tenantId, fecha, turno])
+  @@index([tenantId, fecha])
+  @@map("registros_leche_total")
 }

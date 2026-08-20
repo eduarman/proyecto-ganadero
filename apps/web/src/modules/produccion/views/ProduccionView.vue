@@ -1,10 +1,164 @@
 <script setup lang="ts">
+import { computed, onMounted, ref } from 'vue';
+import { isAxiosError } from 'axios';
 import { useBreakpoint } from '../../../shared/composables/useBreakpoint';
 import SectionCard from '../../../shared/components/SectionCard.vue';
 import Pill from '../../../shared/components/Pill.vue';
-import { kpis, monthly, daily, cowOptions, shiftOptions } from '../mock/produccion.mock';
+import { ganadoApi, type Animal } from '../../ganado/services/ganado.api';
+import {
+  produccionApi,
+  type IndicadoresProduccion,
+  type RegistroLeche,
+  type RegistroLecheTotal,
+  type TurnoOrdenio,
+} from '../services/produccion.api';
 
 const { isMobile } = useBreakpoint();
+
+const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+const TURNO_LABELS: Record<TurnoOrdenio, string> = { MANANA: 'Mañana', TARDE: 'Tarde', UNICO: 'Único' };
+
+function mesLabel(clave: string): string {
+  const mesIndex = Number(clave.split('-')[1]) - 1;
+  return MESES[mesIndex] ?? clave;
+}
+
+function formatLitros(n: number): string {
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : n.toFixed(1);
+}
+
+function formatFecha(iso: string): string {
+  return new Date(iso).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' });
+}
+
+const loading = ref(true);
+const animales = ref<Animal[]>([]);
+const indicadores = ref<IndicadoresProduccion | null>(null);
+const registros = ref<RegistroLeche[]>([]);
+const totales = ref<RegistroLecheTotal[]>([]);
+
+async function cargar() {
+  loading.value = true;
+  try {
+    const [animalesResp, indicadoresResp, registrosResp, totalesResp] = await Promise.all([
+      ganadoApi.listar({ limit: 100 }),
+      produccionApi.indicadores(),
+      produccionApi.listar(),
+      produccionApi.listarTotales(),
+    ]);
+    animales.value = animalesResp.data;
+    indicadores.value = indicadoresResp;
+    registros.value = registrosResp;
+    totales.value = totalesResp;
+  } finally {
+    loading.value = false;
+  }
+}
+
+onMounted(cargar);
+
+const kpis = computed(() => {
+  const ind = indicadores.value;
+  if (!ind) return [];
+  const variacion =
+    ind.variacionMensualPct === null
+      ? '—'
+      : `${ind.variacionMensualPct >= 0 ? '+' : ''}${ind.variacionMensualPct.toFixed(1)}%`;
+  return [
+    {
+      label: 'Producción de hoy',
+      value: `${formatLitros(ind.totalHoy)} L`,
+      hint: `${ind.animalesHoy} animal(es) en ordeño`,
+      bg: 'var(--color-dark)',
+      color: 'var(--color-bg)',
+    },
+    {
+      label: 'Promedio por vaca',
+      value: `${ind.promedioHoy.toFixed(1)} L`,
+      hint: `${ind.animalesHoy} animales en ordeño`,
+      bg: 'var(--color-primary)',
+      color: 'var(--color-bg)',
+    },
+    {
+      label: 'Variación mensual',
+      value: variacion,
+      hint: 'Vs. mes anterior',
+      bg: 'var(--color-white)',
+      color: 'var(--color-dark)',
+    },
+  ];
+});
+
+const monthly = computed(() => {
+  const meses = indicadores.value?.meses ?? [];
+  const max = Math.max(1, ...meses.map((m) => m.total));
+  return meses.map((m) => ({
+    month: mesLabel(m.mes),
+    value: formatLitros(m.total),
+    h: `${Math.max(4, Math.round((m.total / max) * 100))}%`,
+    color: 'var(--color-primary)',
+  }));
+});
+
+const form = ref({
+  animalId: '',
+  turno: 'MANANA' as TurnoOrdenio,
+  fecha: new Date().toISOString().slice(0, 10),
+  litros: '',
+});
+const saving = ref(false);
+const errorMsg = ref('');
+
+async function guardar() {
+  errorMsg.value = '';
+  saving.value = true;
+  try {
+    await produccionApi.registrarLeche({
+      animalId: form.value.animalId,
+      turno: form.value.turno,
+      fecha: form.value.fecha,
+      litros: Number(form.value.litros),
+    });
+    form.value.litros = '';
+    await cargar();
+  } catch (error) {
+    errorMsg.value = isAxiosError(error)
+      ? ((error.response?.data as { message?: string } | undefined)?.message ?? 'No se pudo guardar el registro.')
+      : 'No se pudo guardar el registro.';
+  } finally {
+    saving.value = false;
+  }
+}
+
+const showTotalForm = ref(false);
+const totalForm = ref({
+  fecha: new Date().toISOString().slice(0, 10),
+  turno: 'MANANA' as TurnoOrdenio,
+  litrosTotal: '',
+});
+const savingTotal = ref(false);
+const totalError = ref('');
+
+async function guardarTotal() {
+  totalError.value = '';
+  savingTotal.value = true;
+  try {
+    await produccionApi.registrarTotal({
+      fecha: totalForm.value.fecha,
+      turno: totalForm.value.turno,
+      litrosTotal: Number(totalForm.value.litrosTotal),
+    });
+    totalForm.value.litrosTotal = '';
+    showTotalForm.value = false;
+    await cargar();
+  } catch (error) {
+    totalError.value = isAxiosError(error)
+      ? ((error.response?.data as { message?: string } | undefined)?.message ?? 'No se pudo guardar el total.')
+      : 'No se pudo guardar el total. (Solo administradores y mayordomos pueden cargar el total por turno.)';
+  } finally {
+    savingTotal.value = false;
+  }
+}
 </script>
 
 <template>
@@ -24,30 +178,74 @@ const { isMobile } = useBreakpoint();
 
     <div class="produccion-view__top" :class="{ 'produccion-view__top--mobile': isMobile }">
       <SectionCard :title="isMobile ? 'Registrar producción' : 'Registrar producción de leche'">
+        <template #actions>
+          <button type="button" class="produccion-view__link-btn" @click="showTotalForm = !showTotalForm">
+            {{ showTotalForm ? 'Cancelar' : 'Cargar total por turno' }}
+          </button>
+        </template>
+        <div v-if="errorMsg" class="produccion-view__error">{{ errorMsg }}</div>
         <div class="produccion-view__field">
           <label v-if="!isMobile">Bovino</label>
-          <select>
-            <option v-for="c in cowOptions" :key="c">{{ c }}</option>
+          <select v-model="form.animalId">
+            <option value="" disabled>Seleccioná un animal</option>
+            <option v-for="a in animales" :key="a.id" :value="a.id">{{ a.identificador }}</option>
           </select>
         </div>
         <div class="produccion-view__form-grid" :class="{ 'produccion-view__form-grid--mobile': isMobile }">
           <div class="produccion-view__field">
             <label v-if="!isMobile">Turno</label>
-            <select>
-              <option v-for="s in shiftOptions" :key="s">{{ s }}</option>
+            <select v-model="form.turno">
+              <option v-for="(label, valor) in TURNO_LABELS" :key="valor" :value="valor">{{ label }}</option>
             </select>
           </div>
           <div class="produccion-view__field">
             <label v-if="!isMobile">Fecha</label>
-            <input v-if="!isMobile" type="date" />
-            <input v-else placeholder="Litros" />
+            <input v-model="form.fecha" type="date" />
           </div>
         </div>
-        <div v-if="!isMobile" class="produccion-view__field">
+        <div class="produccion-view__field">
           <label>Litros</label>
-          <input placeholder="15.2" />
+          <input v-model="form.litros" type="number" min="0" step="0.1" placeholder="15.2" />
         </div>
-        <button type="button" class="produccion-view__submit">Guardar producción</button>
+        <button
+          type="button"
+          class="produccion-view__submit"
+          :disabled="saving || !form.animalId || !form.litros"
+          @click="guardar"
+        >
+          {{ saving ? 'Guardando…' : 'Guardar producción' }}
+        </button>
+
+        <div v-if="showTotalForm" class="produccion-view__total-form">
+          <div class="produccion-view__total-form-title">
+            Total del turno (sin desglosar por animal)
+          </div>
+          <div v-if="totalError" class="produccion-view__error">{{ totalError }}</div>
+          <div class="produccion-view__form-grid" :class="{ 'produccion-view__form-grid--mobile': isMobile }">
+            <div class="produccion-view__field">
+              <label>Turno</label>
+              <select v-model="totalForm.turno">
+                <option v-for="(label, valor) in TURNO_LABELS" :key="valor" :value="valor">{{ label }}</option>
+              </select>
+            </div>
+            <div class="produccion-view__field">
+              <label>Fecha</label>
+              <input v-model="totalForm.fecha" type="date" />
+            </div>
+          </div>
+          <div class="produccion-view__field">
+            <label>Litros totales</label>
+            <input v-model="totalForm.litrosTotal" type="number" min="0" step="0.1" placeholder="1840" />
+          </div>
+          <button
+            type="button"
+            class="produccion-view__submit produccion-view__submit--sm"
+            :disabled="savingTotal || !totalForm.litrosTotal"
+            @click="guardarTotal"
+          >
+            {{ savingTotal ? 'Guardando…' : 'Guardar total del turno' }}
+          </button>
+        </div>
       </SectionCard>
 
       <SectionCard v-if="!isMobile" title="Producción mensual (litros)">
@@ -73,26 +271,43 @@ const { isMobile } = useBreakpoint();
       </div>
     </SectionCard>
 
-    <SectionCard v-if="!isMobile" title="Producción diaria por turno">
-      <div class="produccion-view__table-head">
-        <span>Fecha</span><span>Bovino</span><span>Turno</span><span class="text-end">Litros</span>
-      </div>
-      <div v-for="(d, i) in daily" :key="i" class="produccion-view__table-row">
-        <span class="produccion-view__muted">{{ d.date }}</span>
-        <span class="produccion-view__bold">{{ d.cow }}</span>
-        <Pill>{{ d.shift }}</Pill>
-        <span class="produccion-view__liters">{{ d.liters }}</span>
-      </div>
+    <div v-if="loading" class="produccion-view__muted">Cargando…</div>
+
+    <SectionCard v-else-if="!isMobile" title="Producción diaria por turno">
+      <div v-if="registros.length === 0" class="produccion-view__muted">Todavía no hay registros.</div>
+      <template v-else>
+        <div class="produccion-view__table-head">
+          <span>Fecha</span><span>Bovino</span><span>Turno</span><span class="text-end">Litros</span>
+        </div>
+        <div v-for="r in registros" :key="r.id" class="produccion-view__table-row">
+          <span class="produccion-view__muted">{{ formatFecha(r.fecha) }}</span>
+          <span class="produccion-view__bold">{{ r.animal.identificador }}</span>
+          <Pill>{{ TURNO_LABELS[r.turno] }}</Pill>
+          <span class="produccion-view__liters">{{ r.litros }} L</span>
+        </div>
+      </template>
     </SectionCard>
 
     <div v-else class="produccion-view__section">
       <div class="produccion-view__heading">Producción diaria</div>
-      <div v-for="(d, i) in daily" :key="i" class="produccion-view__daily-card">
+      <div v-if="registros.length === 0" class="produccion-view__muted">Todavía no hay registros.</div>
+      <div v-for="r in registros" :key="r.id" class="produccion-view__daily-card">
         <div>
-          <div class="produccion-view__bold">{{ d.cow }}</div>
-          <div class="produccion-view__muted">{{ d.date }} · {{ d.shift }}</div>
+          <div class="produccion-view__bold">{{ r.animal.identificador }}</div>
+          <div class="produccion-view__muted">{{ formatFecha(r.fecha) }} · {{ TURNO_LABELS[r.turno] }}</div>
         </div>
-        <span class="produccion-view__liters">{{ d.liters }}</span>
+        <span class="produccion-view__liters">{{ r.litros }} L</span>
+      </div>
+    </div>
+
+    <div v-if="!loading && totales.length > 0" class="produccion-view__section">
+      <div class="produccion-view__heading">Totales cargados por turno</div>
+      <div v-for="t in totales" :key="t.id" class="produccion-view__daily-card">
+        <div>
+          <div class="produccion-view__bold">{{ TURNO_LABELS[t.turno] }}</div>
+          <div class="produccion-view__muted">{{ formatFecha(t.fecha) }}</div>
+        </div>
+        <span class="produccion-view__liters">{{ t.litrosTotal }} L</span>
       </div>
     </div>
   </div>
@@ -161,6 +376,16 @@ const { isMobile } = useBreakpoint();
     }
   }
 
+  &__error {
+    background: var(--color-warn-bg);
+    color: var(--color-warn);
+    border-radius: 12px;
+    padding: 0.65rem 0.85rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    margin-bottom: 0.6rem;
+  }
+
   &__field {
     display: flex;
     flex-direction: column;
@@ -203,6 +428,44 @@ const { isMobile } = useBreakpoint();
     font-size: 0.82rem;
     cursor: pointer;
     font-family: inherit;
+
+    &:disabled {
+      opacity: 0.6;
+      cursor: progress;
+    }
+
+    &--sm {
+      padding: 0.6rem 1rem;
+      align-self: flex-start;
+    }
+  }
+
+  &__link-btn {
+    background: var(--color-neutral-bg);
+    border: 1.5px solid var(--color-primary);
+    border-radius: 999px;
+    color: var(--color-primary);
+    font-size: 0.68rem;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 0.25rem 0.7rem;
+    font-family: inherit;
+    white-space: nowrap;
+  }
+
+  &__total-form {
+    background: var(--color-bg);
+    border-radius: 14px;
+    padding: 0.85rem;
+    margin-top: 0.85rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+
+  &__total-form-title {
+    font-weight: 700;
+    font-size: 0.8rem;
   }
 
   &__tag {

@@ -7,6 +7,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { GanadoModule } from './modules/ganado/ganado.module';
 import { PotrerosModule } from './modules/potreros/potreros.module';
 import { SanidadModule } from './modules/sanidad/sanidad.module';
+import { ProduccionModule } from './modules/produccion/produccion.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { SanidadModule } from './modules/sanidad/sanidad.module';
     GanadoModule,
     PotrerosModule,
     SanidadModule,
+    ProduccionModule,
   ],
   providers: [
     {
