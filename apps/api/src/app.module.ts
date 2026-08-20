@@ -8,6 +8,7 @@ import { GanadoModule } from './modules/ganado/ganado.module';
 import { PotrerosModule } from './modules/potreros/potreros.module';
 import { SanidadModule } from './modules/sanidad/sanidad.module';
 import { ProduccionModule } from './modules/produccion/produccion.module';
+import { ReproduccionModule } from './modules/reproduccion/reproduccion.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { ProduccionModule } from './modules/produccion/produccion.module';
     PotrerosModule,
     SanidadModule,
     ProduccionModule,
+    ReproduccionModule,
   ],
   providers: [
     {

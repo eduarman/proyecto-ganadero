@@ -5,5 +5,6 @@ import { GanadoService } from './ganado.service';
 @Module({
   controllers: [GanadoController],
   providers: [GanadoService],
+  exports: [GanadoService],
 })
 export class GanadoModule {}

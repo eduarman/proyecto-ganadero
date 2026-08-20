@@ -70,6 +70,9 @@ model Negocio {
   aplicacionesSanitarias AplicacionSanitaria[]
   registrosLeche       RegistroLeche[]
   registrosLecheTotal  RegistroLecheTotal[]
+  servicios              Servicio[]
+  diagnosticosGestacion  DiagnosticoGestacion[]
+  partos                 Parto[]
 
   @@map("negocios")
 }
@@ -239,6 +242,10 @@ model Animal {
   bajas         AnimalBaja[]
   aplicacionesSanitarias AplicacionSanitaria[]
   registrosLeche RegistroLeche[]
+  serviciosComoHembra Servicio[] @relation("ServicioHembra")
+  serviciosComoMacho  Servicio[] @relation("ServicioMacho")
+  partosComoMadre     Parto[]    @relation("PartoMadre")
+  partoComoCria       Parto?     @relation("PartoCria")
 
   @@unique([tenantId, identificador])
   @@index([tenantId, estado])
@@ -390,4 +397,98 @@ model RegistroLecheTotal {
   @@unique([tenantId, fecha, turno])
   @@index([tenantId, fecha])
   @@map("registros_leche_total")
+}
+
+// ---------------------------------------------------------------------------
+// Reproducción — ver .claude/specs/reproduccion/design.md
+// ---------------------------------------------------------------------------
+
+enum TipoServicio {
+  MONTA_NATURAL
+  IA
+  TE
+}
+
+enum EstadoServicio {
+  PENDIENTE_DIAGNOSTICO
+  CONFIRMADO_PRENADA
+  VACIO
+}
+
+enum ResultadoDiagnostico {
+  PRENADA
+  VACIA
+  DUDOSO
+}
+
+enum MetodoDiagnostico {
+  PALPACION
+  ECOGRAFIA
+  OTRO
+}
+
+enum TipoParto {
+  NORMAL
+  DISTOCICO
+  CESAREA
+}
+
+model Servicio {
+  id                       String         @id @default(uuid())
+  tenantId                 String         @map("tenant_id")
+  animalId                 String         @map("animal_id")
+  tipo                     TipoServicio
+  fecha                    DateTime
+  machoId                  String?        @map("macho_id")
+  semenReferencia          String?        @map("semen_referencia")
+  estado                   EstadoServicio @default(PENDIENTE_DIAGNOSTICO)
+  fechaEstimadaDiagnostico DateTime       @map("fecha_estimada_diagnostico")
+  fechaProbableParto       DateTime       @map("fecha_probable_parto")
+  createdAt                DateTime       @default(now()) @map("created_at")
+
+  negocio      Negocio                @relation(fields: [tenantId], references: [id])
+  animal       Animal                 @relation("ServicioHembra", fields: [animalId], references: [id])
+  macho        Animal?                @relation("ServicioMacho", fields: [machoId], references: [id])
+  diagnosticos DiagnosticoGestacion[]
+  parto        Parto?
+
+  @@index([tenantId, animalId])
+  @@map("servicios")
+}
+
+model DiagnosticoGestacion {
+  id         String               @id @default(uuid())
+  tenantId   String               @map("tenant_id")
+  servicioId String               @map("servicio_id")
+  resultado  ResultadoDiagnostico
+  metodo     MetodoDiagnostico
+  fecha      DateTime
+  createdAt  DateTime             @default(now()) @map("created_at")
+
+  negocio  Negocio  @relation(fields: [tenantId], references: [id])
+  servicio Servicio @relation(fields: [servicioId], references: [id])
+
+  @@index([tenantId, servicioId])
+  @@map("diagnosticos_gestacion")
+}
+
+model Parto {
+  id            String    @id @default(uuid())
+  tenantId      String    @map("tenant_id")
+  servicioId    String?   @unique @map("servicio_id")
+  madreId       String    @map("madre_id")
+  fecha         DateTime
+  tipo          TipoParto
+  criaAnimalId  String?   @unique @map("cria_animal_id")
+  mortinato     Boolean   @default(false)
+  observaciones String?
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  negocio  Negocio  @relation(fields: [tenantId], references: [id])
+  servicio Servicio? @relation(fields: [servicioId], references: [id])
+  madre    Animal    @relation("PartoMadre", fields: [madreId], references: [id])
+  cria     Animal?   @relation("PartoCria", fields: [criaAnimalId], references: [id])
+
+  @@index([tenantId, madreId])
+  @@map("partos")
 }
