@@ -3,17 +3,25 @@ import { computed, onMounted, ref } from 'vue';
 import { isAxiosError } from 'axios';
 import { useBreakpoint } from '../../../shared/composables/useBreakpoint';
 import AppIcon from '../../../shared/components/AppIcon.vue';
-import { ganadoApi, type Animal, type SexoAnimal } from '../services/ganado.api';
+import { ganadoApi, type Animal, type MotivoBaja, type SexoAnimal } from '../services/ganado.api';
 
 const { isMobile } = useBreakpoint();
 
 const search = ref('');
 const activeId = ref<string | null>(null);
 const showForm = ref(false);
+const editandoId = ref<string | null>(null);
 const loading = ref(true);
 const saving = ref(false);
 const errorMsg = ref('');
 const animales = ref<Animal[]>([]);
+
+const MOTIVO_BAJA_LABELS: Record<MotivoBaja, string> = {
+  VENTA: 'Venta',
+  MUERTE: 'Muerte',
+  TRASLADO: 'Traslado',
+  OTRO: 'Otro',
+};
 
 const ESTADO_LABELS: Record<string, string> = {
   ACTIVO: 'Activo',
@@ -90,30 +98,94 @@ function resetForm() {
   };
 }
 
+function cancelarForm() {
+  showForm.value = false;
+  editandoId.value = null;
+  errorMsg.value = '';
+  resetForm();
+}
+
+function abrirEdicion(animal: Animal) {
+  editandoId.value = animal.id;
+  form.value = {
+    identificador: animal.identificador,
+    sexo: animal.sexo,
+    raza: animal.raza ?? '',
+    fechaNacimiento: animal.fechaNacimiento ? animal.fechaNacimiento.slice(0, 10) : '',
+    padreRefExterna: animal.padreRefExterna ?? '',
+    madreRefExterna: animal.madreRefExterna ?? '',
+    potreroActual: animal.potreroActual ?? '',
+  };
+  errorMsg.value = '';
+  showForm.value = true;
+  mostrarBaja.value = false;
+}
+
 async function guardar() {
   errorMsg.value = '';
   saving.value = true;
   try {
-    const creado = await ganadoApi.crear({
+    const payload = {
       identificador: form.value.identificador,
-      especie: 'BOVINO',
+      especie: 'BOVINO' as const,
       sexo: form.value.sexo,
       raza: form.value.raza || undefined,
       fechaNacimiento: form.value.fechaNacimiento || undefined,
       padreRefExterna: form.value.padreRefExterna || undefined,
       madreRefExterna: form.value.madreRefExterna || undefined,
       potreroActual: form.value.potreroActual || undefined,
-    });
+    };
+    const guardado = editandoId.value
+      ? await ganadoApi.actualizar(editandoId.value, payload)
+      : await ganadoApi.crear(payload);
     showForm.value = false;
+    editandoId.value = null;
     resetForm();
     await cargar();
-    activeId.value = creado.id;
+    activeId.value = guardado.id;
   } catch (error) {
     errorMsg.value = isAxiosError(error)
       ? ((error.response?.data as { message?: string } | undefined)?.message ?? 'No se pudo guardar el animal.')
       : 'No se pudo guardar el animal.';
   } finally {
     saving.value = false;
+  }
+}
+
+const mostrarBaja = ref(false);
+const dandoBaja = ref(false);
+const bajaError = ref('');
+const bajaForm = ref({
+  motivo: 'VENTA' as MotivoBaja,
+  fecha: new Date().toISOString().slice(0, 10),
+  observaciones: '',
+});
+
+function abrirBaja() {
+  showForm.value = false;
+  bajaForm.value = { motivo: 'VENTA', fecha: new Date().toISOString().slice(0, 10), observaciones: '' };
+  bajaError.value = '';
+  mostrarBaja.value = true;
+}
+
+async function confirmarBaja() {
+  if (!selected.value) return;
+  bajaError.value = '';
+  dandoBaja.value = true;
+  try {
+    await ganadoApi.darBaja(selected.value.id, {
+      motivo: bajaForm.value.motivo,
+      fecha: bajaForm.value.fecha,
+      observaciones: bajaForm.value.observaciones || undefined,
+    });
+    mostrarBaja.value = false;
+    await cargar();
+  } catch (error) {
+    bajaError.value = isAxiosError(error)
+      ? ((error.response?.data as { message?: string } | undefined)?.message ?? 'No se pudo dar de baja al animal.')
+      : 'No se pudo dar de baja al animal.';
+  } finally {
+    dandoBaja.value = false;
   }
 }
 </script>
@@ -123,17 +195,24 @@ async function guardar() {
     <div class="ganado-view__toolbar">
       <div v-if="isMobile" class="ganado-view__search-row">
         <input v-model="search" class="ganado-view__search" placeholder="Buscar por identificador…" />
-        <button type="button" class="ganado-view__add-btn" @click="showForm = !showForm">
+        <button type="button" class="ganado-view__add-btn" @click="showForm ? cancelarForm() : (showForm = true)">
           <AppIcon name="plus" :size="18" />
         </button>
       </div>
-      <button v-else type="button" class="ganado-view__new-btn" @click="showForm = !showForm">
+      <button
+        v-else
+        type="button"
+        class="ganado-view__new-btn"
+        @click="showForm ? cancelarForm() : (showForm = true)"
+      >
         {{ showForm ? 'Cerrar formulario' : 'Registrar nuevo bovino' }}
       </button>
     </div>
 
     <div v-if="showForm" class="ganado-view__form">
-      <div class="ganado-view__form-title">Registrar nuevo bovino</div>
+      <div class="ganado-view__form-title">
+        {{ editandoId ? 'Editar bovino' : 'Registrar nuevo bovino' }}
+      </div>
       <div v-if="errorMsg" class="ganado-view__form-error">{{ errorMsg }}</div>
       <div class="ganado-view__form-grid">
         <div class="ganado-view__field">
@@ -169,14 +248,50 @@ async function guardar() {
         </div>
       </div>
       <div class="ganado-view__form-actions">
-        <button type="button" class="ganado-view__btn-ghost" @click="showForm = false">Cancelar</button>
+        <button type="button" class="ganado-view__btn-ghost" @click="cancelarForm">Cancelar</button>
         <button
           type="button"
           class="ganado-view__btn-primary"
           :disabled="saving || !form.identificador"
           @click="guardar"
         >
-          {{ saving ? 'Guardando…' : 'Guardar bovino' }}
+          {{ saving ? 'Guardando…' : editandoId ? 'Guardar cambios' : 'Guardar bovino' }}
+        </button>
+      </div>
+    </div>
+
+    <div v-if="mostrarBaja && selected" class="ganado-view__form">
+      <div class="ganado-view__form-title">Dar de baja a {{ selected.identificador }}</div>
+      <div v-if="bajaError" class="ganado-view__form-error">{{ bajaError }}</div>
+      <div class="ganado-view__form-grid">
+        <div class="ganado-view__field">
+          <label>Motivo</label>
+          <select v-model="bajaForm.motivo">
+            <option v-for="(label, valor) in MOTIVO_BAJA_LABELS" :key="valor" :value="valor">
+              {{ label }}
+            </option>
+          </select>
+        </div>
+        <div class="ganado-view__field">
+          <label>Fecha</label>
+          <input v-model="bajaForm.fecha" type="date" />
+        </div>
+        <div class="ganado-view__field">
+          <label>Observaciones</label>
+          <input v-model="bajaForm.observaciones" placeholder="Opcional" />
+        </div>
+      </div>
+      <div class="ganado-view__form-actions">
+        <button type="button" class="ganado-view__btn-ghost" @click="mostrarBaja = false">
+          Cancelar
+        </button>
+        <button
+          type="button"
+          class="ganado-view__btn-primary"
+          :disabled="dandoBaja"
+          @click="confirmarBaja"
+        >
+          {{ dandoBaja ? 'Guardando…' : 'Confirmar baja' }}
         </button>
       </div>
     </div>
@@ -223,6 +338,19 @@ async function guardar() {
               <div class="ganado-view__stat-value">{{ c.madreRefExterna ?? '—' }}</div>
             </div>
           </div>
+          <div class="ganado-view__detail-actions">
+            <button type="button" class="ganado-view__btn-ghost" @click="abrirEdicion(c)">
+              Editar
+            </button>
+            <button
+              v-if="c.estado === 'ACTIVO'"
+              type="button"
+              class="ganado-view__btn-ghost"
+              @click="activeId = c.id; abrirBaja()"
+            >
+              Dar de baja
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -268,6 +396,19 @@ async function guardar() {
             </div>
             <div class="ganado-view__detail-line">
               Potrero actual: {{ selected.potreroActual ?? 'Sin asignar' }}
+            </div>
+            <div class="ganado-view__detail-actions">
+              <button type="button" class="ganado-view__btn-ghost" @click="abrirEdicion(selected)">
+                Editar
+              </button>
+              <button
+                v-if="selected.estado === 'ACTIVO'"
+                type="button"
+                class="ganado-view__btn-ghost"
+                @click="abrirBaja"
+              >
+                Dar de baja
+              </button>
             </div>
           </div>
         </div>
@@ -571,6 +712,17 @@ async function guardar() {
     font-size: 0.82rem;
     color: rgba(40, 54, 24, 0.6);
     margin-top: 0.2rem;
+  }
+
+  &__detail-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.6rem;
+
+    .ganado-view__btn-ghost {
+      padding: 0.5rem 0.9rem;
+      font-size: 0.75rem;
+    }
   }
 
   &__stats-grid {
