@@ -64,6 +64,7 @@ model Negocio {
   cuenta          Cuenta           @relation(fields: [cuentaId], references: [id])
   usuarioNegocios UsuarioNegocio[]
   ultimoDeUsuario Usuario[]        @relation("UltimoNegocio")
+  animales        Animal[]
 
   @@map("negocios")
 }
@@ -173,4 +174,78 @@ model IntentoLogin {
   @@index([email, createdAt])
   @@index([ip, createdAt])
   @@map("intentos_login")
+}
+
+// ---------------------------------------------------------------------------
+// Ganado — ver .claude/specs/ganado/design.md
+// ---------------------------------------------------------------------------
+
+enum Especie {
+  BOVINO
+  BUFALINO
+}
+
+enum SexoAnimal {
+  MACHO
+  HEMBRA
+}
+
+enum EstadoAnimal {
+  ACTIVO
+  VENDIDO
+  MUERTO
+  EN_TRANSITO
+  INACTIVO
+}
+
+enum MotivoBaja {
+  VENTA
+  MUERTE
+  TRASLADO
+  OTRO
+}
+
+model Animal {
+  id                String       @id @default(uuid())
+  tenantId          String       @map("tenant_id")
+  identificador     String
+  especie           Especie
+  sexo              SexoAnimal
+  fechaNacimiento   DateTime?    @map("fecha_nacimiento")
+  categoria         String?
+  raza              String?
+  color             String?
+  pesoNacimiento    Decimal?     @map("peso_nacimiento") @db.Decimal(6, 2)
+  // Padre/madre y potrero como texto libre por ahora — sin vincular a otros
+  // animales del sistema ni al módulo potreros (todavía no existen).
+  madreRefExterna   String?      @map("madre_ref_externa")
+  padreRefExterna   String?      @map("padre_ref_externa")
+  fotoUrl           String?      @map("foto_url")
+  potreroActual     String?      @map("potrero_actual")
+  estado            EstadoAnimal @default(ACTIVO)
+  createdAt         DateTime     @default(now()) @map("created_at")
+  updatedAt         DateTime     @updatedAt @map("updated_at")
+
+  negocio Negocio      @relation(fields: [tenantId], references: [id])
+  bajas   AnimalBaja[]
+
+  @@unique([tenantId, identificador])
+  @@index([tenantId, estado])
+  @@map("animales")
+}
+
+model AnimalBaja {
+  id           String     @id @default(uuid())
+  tenantId     String     @map("tenant_id")
+  animalId     String     @map("animal_id")
+  motivo       MotivoBaja
+  fecha        DateTime
+  observaciones String?
+  usuarioId    String     @map("usuario_id")
+  createdAt    DateTime   @default(now()) @map("created_at")
+
+  animal Animal @relation(fields: [animalId], references: [id])
+
+  @@index([tenantId, animalId])
+  @@map("animal_bajas")
 }

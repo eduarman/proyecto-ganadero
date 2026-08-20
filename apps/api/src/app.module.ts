@@ -4,6 +4,7 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AppConfigModule } from './config/app-config.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { GanadoModule } from './modules/ganado/ganado.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { AuthModule } from './modules/auth/auth.module';
       throttlers: [{ ttl: 60_000, limit: 60 }],
     }),
     AuthModule,
+    GanadoModule,
   ],
   providers: [
     {

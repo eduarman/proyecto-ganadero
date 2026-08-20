@@ -1,31 +1,120 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
+import { isAxiosError } from 'axios';
 import { useBreakpoint } from '../../../shared/composables/useBreakpoint';
 import AppIcon from '../../../shared/components/AppIcon.vue';
-import { cows, breeds } from '../mock/ganado.mock';
+import { ganadoApi, type Animal, type SexoAnimal } from '../services/ganado.api';
 
 const { isMobile } = useBreakpoint();
 
 const search = ref('');
-const activeId = ref(1);
+const activeId = ref<string | null>(null);
 const showForm = ref(false);
+const loading = ref(true);
+const saving = ref(false);
+const errorMsg = ref('');
+const animales = ref<Animal[]>([]);
+
+const ESTADO_LABELS: Record<string, string> = {
+  ACTIVO: 'Activo',
+  VENDIDO: 'Vendido',
+  MUERTO: 'Muerto',
+  EN_TRANSITO: 'En tránsito',
+  INACTIVO: 'Inactivo',
+};
+const ESTADO_ATENCION = new Set(['EN_TRANSITO', 'INACTIVO']);
+
+function estiloEstado(estado: string) {
+  return ESTADO_ATENCION.has(estado)
+    ? { pillBg: 'var(--color-warn-bg)', pillColor: 'var(--color-warn)' }
+    : { pillBg: 'var(--color-neutral-bg)', pillColor: 'var(--color-primary)' };
+}
+
+function formatFecha(iso: string | null) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString('es-ES');
+}
+
+async function cargar() {
+  loading.value = true;
+  try {
+    const resp = await ganadoApi.listar({ limit: 100 });
+    animales.value = resp.data;
+    if (!animales.value.some((a) => a.id === activeId.value)) {
+      activeId.value = animales.value[0]?.id ?? null;
+    }
+  } finally {
+    loading.value = false;
+  }
+}
+
+onMounted(cargar);
 
 const filteredCows = computed(() => {
   const q = search.value.trim().toLowerCase();
-  if (!q) return cows;
-  return cows.filter(
-    (c) => c.name.toLowerCase().includes(q) || c.rfid.toLowerCase().includes(q),
-  );
+  if (!q) return animales.value;
+  return animales.value.filter((a) => a.identificador.toLowerCase().includes(q));
 });
 
-const selected = computed(() => cows.find((c) => c.id === activeId.value) ?? cows[0]);
+const selected = computed(
+  () => animales.value.find((a) => a.id === activeId.value) ?? animales.value[0],
+);
 
-function selectCow(id: number) {
+function selectCow(id: string) {
   activeId.value = id;
 }
 
-function toggleAccordion(id: number) {
-  activeId.value = activeId.value === id ? -1 : id;
+function toggleAccordion(id: string) {
+  activeId.value = activeId.value === id ? null : id;
+}
+
+const form = ref({
+  identificador: '',
+  sexo: 'HEMBRA' as SexoAnimal,
+  raza: '',
+  fechaNacimiento: '',
+  padreRefExterna: '',
+  madreRefExterna: '',
+  potreroActual: '',
+});
+
+function resetForm() {
+  form.value = {
+    identificador: '',
+    sexo: 'HEMBRA',
+    raza: '',
+    fechaNacimiento: '',
+    padreRefExterna: '',
+    madreRefExterna: '',
+    potreroActual: '',
+  };
+}
+
+async function guardar() {
+  errorMsg.value = '';
+  saving.value = true;
+  try {
+    const creado = await ganadoApi.crear({
+      identificador: form.value.identificador,
+      especie: 'BOVINO',
+      sexo: form.value.sexo,
+      raza: form.value.raza || undefined,
+      fechaNacimiento: form.value.fechaNacimiento || undefined,
+      padreRefExterna: form.value.padreRefExterna || undefined,
+      madreRefExterna: form.value.madreRefExterna || undefined,
+      potreroActual: form.value.potreroActual || undefined,
+    });
+    showForm.value = false;
+    resetForm();
+    await cargar();
+    activeId.value = creado.id;
+  } catch (error) {
+    errorMsg.value = isAxiosError(error)
+      ? ((error.response?.data as { message?: string } | undefined)?.message ?? 'No se pudo guardar el animal.')
+      : 'No se pudo guardar el animal.';
+  } finally {
+    saving.value = false;
+  }
 }
 </script>
 
@@ -33,7 +122,7 @@ function toggleAccordion(id: number) {
   <div class="ganado-view">
     <div class="ganado-view__toolbar">
       <div v-if="isMobile" class="ganado-view__search-row">
-        <input v-model="search" class="ganado-view__search" placeholder="Buscar por nombre o RFID…" />
+        <input v-model="search" class="ganado-view__search" placeholder="Buscar por identificador…" />
         <button type="button" class="ganado-view__add-btn" @click="showForm = !showForm">
           <AppIcon name="plus" :size="18" />
         </button>
@@ -45,52 +134,71 @@ function toggleAccordion(id: number) {
 
     <div v-if="showForm" class="ganado-view__form">
       <div class="ganado-view__form-title">Registrar nuevo bovino</div>
+      <div v-if="errorMsg" class="ganado-view__form-error">{{ errorMsg }}</div>
       <div class="ganado-view__form-grid">
         <div class="ganado-view__field">
-          <label>RFID</label>
-          <input placeholder="004829" />
+          <label>Identificador (arete/RFID)</label>
+          <input v-model="form.identificador" placeholder="004829" />
         </div>
         <div class="ganado-view__field">
-          <label>Nombre</label>
-          <input placeholder="Nombre del animal" />
-        </div>
-        <div class="ganado-view__field">
-          <label>Raza</label>
-          <select>
-            <option v-for="b in breeds" :key="b">{{ b }}</option>
+          <label>Sexo</label>
+          <select v-model="form.sexo">
+            <option value="HEMBRA">Hembra</option>
+            <option value="MACHO">Macho</option>
           </select>
         </div>
         <div class="ganado-view__field">
+          <label>Raza</label>
+          <input v-model="form.raza" placeholder="Holstein" />
+        </div>
+        <div class="ganado-view__field">
           <label>Fecha de nacimiento</label>
-          <input type="date" />
+          <input v-model="form.fechaNacimiento" type="date" />
         </div>
         <div class="ganado-view__field">
           <label>Padre</label>
-          <input placeholder="Toro Max" />
+          <input v-model="form.padreRefExterna" placeholder="Toro Max" />
         </div>
         <div class="ganado-view__field">
           <label>Madre</label>
-          <input placeholder="Bonita" />
+          <input v-model="form.madreRefExterna" placeholder="Bonita" />
+        </div>
+        <div class="ganado-view__field">
+          <label>Potrero actual</label>
+          <input v-model="form.potreroActual" placeholder="Potrero 3" />
         </div>
       </div>
       <div class="ganado-view__form-actions">
         <button type="button" class="ganado-view__btn-ghost" @click="showForm = false">Cancelar</button>
-        <button type="button" class="ganado-view__btn-primary" @click="showForm = false">
-          Guardar bovino
+        <button
+          type="button"
+          class="ganado-view__btn-primary"
+          :disabled="saving || !form.identificador"
+          @click="guardar"
+        >
+          {{ saving ? 'Guardando…' : 'Guardar bovino' }}
         </button>
       </div>
     </div>
 
+    <div v-if="loading" class="ganado-view__empty">Cargando…</div>
+    <div v-else-if="animales.length === 0" class="ganado-view__empty">
+      Todavía no hay animales registrados en este negocio.
+    </div>
+
     <!-- Mobile: acordeón -->
-    <div v-if="isMobile" class="ganado-view__accordion">
+    <div v-else-if="isMobile" class="ganado-view__accordion">
       <div v-for="c in filteredCows" :key="c.id" class="ganado-view__acc-item">
         <button type="button" class="ganado-view__acc-head" @click="toggleAccordion(c.id)">
           <div>
-            <div class="ganado-view__acc-name">{{ c.name }}</div>
-            <div class="ganado-view__acc-meta">RFID {{ c.rfid }} · {{ c.breed }}</div>
+            <div class="ganado-view__acc-name">{{ c.identificador }}</div>
+            <div class="ganado-view__acc-meta">{{ c.raza ?? 'Raza sin registrar' }}</div>
           </div>
-          <span class="ganado-view__status" :style="{ background: c.pillBg, color: c.pillColor }">
-            {{ c.status }}
+          <span
+            class="ganado-view__status"
+            :style="estiloEstado(c.estado)"
+          >
+            {{ ESTADO_LABELS[c.estado] }}
           </span>
         </button>
         <div v-if="activeId === c.id" class="ganado-view__acc-body">
@@ -99,18 +207,20 @@ function toggleAccordion(id: number) {
               <AppIcon name="cow" :size="22" />
             </div>
             <div>
-              <div class="ganado-view__acc-birth">Nacida {{ c.birth }} · {{ c.paddock }}</div>
-              <div class="ganado-view__acc-avg">Prom. {{ c.avgLiters }}</div>
+              <div class="ganado-view__acc-birth">
+                Nacida {{ formatFecha(c.fechaNacimiento) }} · {{ c.potreroActual ?? 'Sin potrero asignado' }}
+              </div>
+              <div class="ganado-view__acc-avg">{{ c.categoria ?? 'Categoría sin calcular' }}</div>
             </div>
           </div>
           <div class="ganado-view__acc-stats">
             <div class="ganado-view__stat">
               <div class="ganado-view__stat-label">Padre</div>
-              <div class="ganado-view__stat-value">{{ c.father }}</div>
+              <div class="ganado-view__stat-value">{{ c.padreRefExterna ?? '—' }}</div>
             </div>
             <div class="ganado-view__stat">
               <div class="ganado-view__stat-label">Madre</div>
-              <div class="ganado-view__stat-value">{{ c.mother }}</div>
+              <div class="ganado-view__stat-value">{{ c.madreRefExterna ?? '—' }}</div>
             </div>
           </div>
         </div>
@@ -120,7 +230,7 @@ function toggleAccordion(id: number) {
     <!-- Desktop: lista + detalle -->
     <div v-else class="ganado-view__columns">
       <div class="ganado-view__list">
-        <input v-model="search" class="ganado-view__search" placeholder="Buscar por nombre o RFID…" />
+        <input v-model="search" class="ganado-view__search" placeholder="Buscar por identificador…" />
         <div class="ganado-view__list-items">
           <button
             v-for="c in filteredCows"
@@ -131,61 +241,59 @@ function toggleAccordion(id: number) {
             @click="selectCow(c.id)"
           >
             <div>
-              <div class="ganado-view__acc-name">{{ c.name }}</div>
-              <div class="ganado-view__acc-meta">RFID {{ c.rfid }} · {{ c.breed }}</div>
+              <div class="ganado-view__acc-name">{{ c.identificador }}</div>
+              <div class="ganado-view__acc-meta">{{ c.raza ?? 'Raza sin registrar' }}</div>
             </div>
-            <span class="ganado-view__status" :style="{ background: c.pillBg, color: c.pillColor }">
-              {{ c.status }}
+            <span class="ganado-view__status" :style="estiloEstado(c.estado)">
+              {{ ESTADO_LABELS[c.estado] }}
             </span>
           </button>
         </div>
       </div>
 
-      <div class="ganado-view__detail">
+      <div v-if="selected" class="ganado-view__detail">
         <div class="ganado-view__detail-head">
           <div class="ganado-view__photo">
             <AppIcon name="cow" :size="36" />
           </div>
           <div class="ganado-view__detail-info">
             <div class="ganado-view__detail-title-row">
-              <h2>{{ selected.name }}</h2>
-              <span
-                class="ganado-view__status"
-                :style="{ background: selected.pillBg, color: selected.pillColor }"
-              >
-                {{ selected.status }}
+              <h2>{{ selected.identificador }}</h2>
+              <span class="ganado-view__status" :style="estiloEstado(selected.estado)">
+                {{ ESTADO_LABELS[selected.estado] }}
               </span>
             </div>
             <div class="ganado-view__detail-line">
-              RFID {{ selected.rfid }} · {{ selected.breed }} · Nacida {{ selected.birth }}
+              {{ selected.raza ?? 'Raza sin registrar' }} · Nacida {{ formatFecha(selected.fechaNacimiento) }}
             </div>
-            <div class="ganado-view__detail-line">Potrero actual: {{ selected.paddock }}</div>
+            <div class="ganado-view__detail-line">
+              Potrero actual: {{ selected.potreroActual ?? 'Sin asignar' }}
+            </div>
           </div>
         </div>
 
         <div class="ganado-view__stats-grid">
           <div class="ganado-view__stat">
-            <div class="ganado-view__stat-label">Producción prom.</div>
+            <div class="ganado-view__stat-label">Categoría</div>
             <div class="ganado-view__stat-value ganado-view__stat-value--lg">
-              {{ selected.avgLiters }}
+              {{ selected.categoria ?? '—' }}
             </div>
           </div>
           <div class="ganado-view__stat">
             <div class="ganado-view__stat-label">Padre</div>
-            <div class="ganado-view__stat-value">{{ selected.father }}</div>
+            <div class="ganado-view__stat-value">{{ selected.padreRefExterna ?? '—' }}</div>
           </div>
           <div class="ganado-view__stat">
             <div class="ganado-view__stat-label">Madre</div>
-            <div class="ganado-view__stat-value">{{ selected.mother }}</div>
+            <div class="ganado-view__stat-value">{{ selected.madreRefExterna ?? '—' }}</div>
           </div>
         </div>
 
         <div>
           <div class="ganado-view__history-title">Historial reciente</div>
-          <div v-for="(h, i) in selected.history" :key="i" class="ganado-view__history-row">
-            <span class="ganado-view__history-date">{{ h.date }}</span>
-            <span class="ganado-view__history-event">{{ h.event }}</span>
-            <span class="ganado-view__history-detail">{{ h.detail }}</span>
+          <div class="ganado-view__history-empty">
+            El historial de eventos (producción, sanidad, reproducción) va a estar disponible acá
+            cuando se conecten esos módulos.
           </div>
         </div>
       </div>
@@ -261,6 +369,15 @@ function toggleAccordion(id: number) {
     font-size: 1rem;
   }
 
+  &__form-error {
+    background: var(--color-warn-bg);
+    color: var(--color-warn);
+    border-radius: 12px;
+    padding: 0.65rem 0.85rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+
   &__form-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -321,6 +438,21 @@ function toggleAccordion(id: number) {
     font-size: 0.82rem;
     cursor: pointer;
     font-family: inherit;
+
+    &:disabled {
+      opacity: 0.6;
+      cursor: progress;
+    }
+  }
+
+  &__empty {
+    background: var(--color-white);
+    border-radius: 1.25rem;
+    padding: 2rem;
+    box-shadow: var(--shadow-card);
+    text-align: center;
+    color: rgba(40, 54, 24, 0.6);
+    font-size: 0.85rem;
   }
 
   &__columns {
@@ -476,28 +608,11 @@ function toggleAccordion(id: number) {
     margin-bottom: 0.5rem;
   }
 
-  &__history-row {
-    display: grid;
-    grid-template-columns: 70px 110px 1fr;
-    gap: 0.6rem;
+  &__history-empty {
+    font-size: 0.8rem;
+    color: rgba(40, 54, 24, 0.55);
     padding: 0.6rem 0;
     border-top: 1px solid #f2efdd;
-    align-items: center;
-  }
-
-  &__history-date {
-    font-size: 0.75rem;
-    color: rgba(40, 54, 24, 0.55);
-  }
-
-  &__history-event {
-    font-size: 0.8rem;
-    font-weight: 700;
-  }
-
-  &__history-detail {
-    font-size: 0.8rem;
-    color: rgba(40, 54, 24, 0.7);
   }
 
   &__accordion {
