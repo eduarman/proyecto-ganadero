@@ -117,4 +117,18 @@ export class SanidadService {
       vencido: a.proximaFechaEsperada !== null && a.proximaFechaEsperada < ahora,
     }));
   }
+
+  async cumplimiento(tenantId: string) {
+    const ahora = new Date();
+    const [vencidas, alDia] = await Promise.all([
+      this.prisma.aplicacionSanitaria.count({
+        where: { tenantId, proximaFechaEsperada: { not: null, lt: ahora } },
+      }),
+      this.prisma.aplicacionSanitaria.count({
+        where: { tenantId, proximaFechaEsperada: { not: null, gte: ahora } },
+      }),
+    ]);
+    const total = vencidas + alDia;
+    return { total, vencidas, alDia, porcentajeAlDia: total > 0 ? (alDia / total) * 100 : 100 };
+  }
 }

@@ -11,6 +11,7 @@ import { ProduccionModule } from './modules/produccion/produccion.module';
 import { ReproduccionModule } from './modules/reproduccion/reproduccion.module';
 import { AlimentacionModule } from './modules/alimentacion/alimentacion.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { ReportesModule } from './modules/reportes/reportes.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
     ReproduccionModule,
     AlimentacionModule,
     DashboardModule,
+    ReportesModule,
   ],
   providers: [
     {

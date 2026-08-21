@@ -77,6 +77,7 @@ model Negocio {
   planesAlimentacion     PlanAlimentacion[]
   planAsignaciones       PlanAsignacion[]
   suministros            Suministro[]
+  reportesGenerados      ReporteGenerado[]
 
   @@map("negocios")
 }
@@ -103,6 +104,7 @@ model Usuario {
   registrosLeche         RegistroLeche[]
   registrosLecheTotal    RegistroLecheTotal[]
   suministrosRegistrados Suministro[]
+  reportesGenerados      ReporteGenerado[]
 
   @@map("usuarios")
 }
@@ -614,4 +616,50 @@ model Suministro {
 
   @@index([tenantId, fecha])
   @@map("suministros")
+}
+
+// ---------------------------------------------------------------------------
+// Reportes — ver .claude/specs/reportes/design.md
+// ---------------------------------------------------------------------------
+
+enum TipoReporte {
+  INVENTARIO_GANADO
+  NATALIDAD_MORTALIDAD
+  PRODUCCION
+  COSTOS_ALIMENTACION
+  CUMPLIMIENTO_SANITARIO
+  OCUPACION_POTREROS
+  COSTO_VS_PRODUCCION
+}
+
+enum FormatoReporte {
+  PDF
+  XLSX
+}
+
+enum EstadoReporte {
+  PENDIENTE
+  GENERANDO
+  LISTO
+  ERROR
+}
+
+model ReporteGenerado {
+  id              String         @id @default(uuid())
+  tenantId        String         @map("tenant_id")
+  tipo            TipoReporte
+  filtrosJson     Json           @map("filtros_json")
+  formato         FormatoReporte
+  estado          EstadoReporte  @default(PENDIENTE)
+  archivoPath     String?        @map("archivo_path")
+  errorMensaje    String?        @map("error_mensaje")
+  solicitadoPorId String         @map("solicitado_por")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  completadoEn    DateTime?      @map("completado_en")
+
+  negocio       Negocio @relation(fields: [tenantId], references: [id])
+  solicitadoPor Usuario @relation(fields: [solicitadoPorId], references: [id])
+
+  @@index([tenantId, createdAt])
+  @@map("reportes_generados")
 }

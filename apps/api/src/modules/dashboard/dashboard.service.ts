@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { calcularCategoriaEtaria } from '../ganado/categoria-etaria.util';
+import { clasificarOcupacion } from '../potreros/ocupacion.util';
 import { PotrerosService } from '../potreros/potreros.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProduccionService } from '../produccion/produccion.service';
@@ -55,20 +56,7 @@ export class DashboardService {
 
   private async ocupacionPotreros(tenantId: string) {
     const potreros = await this.potrerosService.listar(tenantId);
-    let normal = 0;
-    let cercaLimite = 0;
-    let sobrecargado = 0;
-
-    for (const p of potreros) {
-      if (p.estado !== 'ACTIVO' || !p.capacidadCarga) continue;
-      const capacidad = Number(p.capacidadCarga);
-      const ratio = capacidad > 0 ? p.ocupacionActual / capacidad : 0;
-      if (ratio > 1) sobrecargado += 1;
-      else if (ratio >= 0.8) cercaLimite += 1;
-      else normal += 1;
-    }
-
-    return { normal, cercaLimite, sobrecargado };
+    return clasificarOcupacion(potreros);
   }
 
   private async produccionUltimaSemana(tenantId: string) {

@@ -189,9 +189,16 @@ export class AlimentacionService {
     });
   }
 
-  async costos(tenantId: string) {
+  async costos(tenantId: string, desde?: Date, hasta?: Date, potreroId?: string) {
     const suministros = await this.prisma.suministro.findMany({
-      where: { tenantId },
+      where: {
+        tenantId,
+        ...((desde || hasta) && { fecha: { gte: desde, lte: hasta } }),
+        // Solo alcanza a suministros cargados directamente sobre el potrero
+        // (no a los que apuntan a animales individuales que hoy pastan ahí —
+        // `animalIds` es un array plano, sin join posible contra Animal).
+        ...(potreroId && { potreroId }),
+      },
       include: { insumo: true },
     });
 

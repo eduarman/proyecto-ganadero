@@ -24,4 +24,16 @@ export class AppConfigService {
   get corsOrigin(): string {
     return this.config.get<string>('CORS_ORIGIN', 'http://localhost:5173');
   }
+
+  get supabaseUrl(): string | undefined {
+    return this.config.get<string>('SUPABASE_URL');
+  }
+
+  get supabaseServiceRoleKey(): string | undefined {
+    return this.config.get<string>('SUPABASE_SERVICE_ROLE_KEY');
+  }
+
+  get supabaseReportesBucket(): string {
+    return this.config.get<string>('SUPABASE_REPORTES_BUCKET', 'reportes');
+  }
 }
