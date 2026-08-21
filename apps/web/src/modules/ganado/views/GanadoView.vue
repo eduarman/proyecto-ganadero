@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { isAxiosError } from 'axios';
 import { useBreakpoint } from '../../../shared/composables/useBreakpoint';
 import AppIcon from '../../../shared/components/AppIcon.vue';
-import { ganadoApi, type Animal, type MotivoBaja, type SexoAnimal } from '../services/ganado.api';
+import { ganadoApi, type Animal, type EstadoAnimal, type MotivoBaja, type SexoAnimal } from '../services/ganado.api';
 import { potrerosApi, type Potrero } from '../../potreros/services/potreros.api';
 
 const { isMobile } = useBreakpoint();
@@ -17,6 +17,20 @@ const saving = ref(false);
 const errorMsg = ref('');
 const animales = ref<Animal[]>([]);
 const potreros = ref<Potrero[]>([]);
+
+const ESTADO_OPCIONES: EstadoAnimal[] = ['ACTIVO', 'VENDIDO', 'MUERTO', 'EN_TRANSITO', 'INACTIVO'];
+const showFiltros = ref(false);
+const filtros = ref({
+  estado: '' as EstadoAnimal | '',
+  sexo: '' as SexoAnimal | '',
+  potreroActualId: '',
+  edadMinAnios: '',
+  edadMaxAnios: '',
+});
+const page = ref(1);
+const limit = 20;
+const total = ref(0);
+const totalPaginas = computed(() => Math.max(1, Math.ceil(total.value / limit)));
 
 function nombrePotrero(id: string | null): string {
   if (!id) return 'Sin asignar';
@@ -54,10 +68,20 @@ async function cargar() {
   loading.value = true;
   try {
     const [resp, potrerosResp] = await Promise.all([
-      ganadoApi.listar({ limit: 100 }),
+      ganadoApi.listar({
+        page: page.value,
+        limit,
+        search: search.value || undefined,
+        estado: filtros.value.estado || undefined,
+        sexo: filtros.value.sexo || undefined,
+        potreroActualId: filtros.value.potreroActualId || undefined,
+        edadMinMeses: filtros.value.edadMinAnios ? Number(filtros.value.edadMinAnios) * 12 : undefined,
+        edadMaxMeses: filtros.value.edadMaxAnios ? Number(filtros.value.edadMaxAnios) * 12 : undefined,
+      }),
       potrerosApi.listar(),
     ]);
     animales.value = resp.data;
+    total.value = resp.total;
     potreros.value = potrerosResp.filter((p) => p.estado === 'ACTIVO');
     if (!animales.value.some((a) => a.id === activeId.value)) {
       activeId.value = animales.value[0]?.id ?? null;
@@ -69,11 +93,33 @@ async function cargar() {
 
 onMounted(cargar);
 
-const filteredCows = computed(() => {
-  const q = search.value.trim().toLowerCase();
-  if (!q) return animales.value;
-  return animales.value.filter((a) => a.identificador.toLowerCase().includes(q));
+let debounceHandle: ReturnType<typeof setTimeout> | undefined;
+watch(search, () => {
+  clearTimeout(debounceHandle);
+  debounceHandle = setTimeout(() => {
+    page.value = 1;
+    cargar();
+  }, 400);
 });
+onUnmounted(() => clearTimeout(debounceHandle));
+
+watch(
+  () => [filtros.value.estado, filtros.value.sexo, filtros.value.potreroActualId, filtros.value.edadMinAnios, filtros.value.edadMaxAnios],
+  () => {
+    page.value = 1;
+    cargar();
+  },
+);
+
+function irAPagina(nueva: number) {
+  if (nueva < 1 || nueva > totalPaginas.value) return;
+  page.value = nueva;
+  cargar();
+}
+
+function limpiarFiltros() {
+  filtros.value = { estado: '', sexo: '', potreroActualId: '', edadMinAnios: '', edadMaxAnios: '' };
+}
 
 const selected = computed(
   () => animales.value.find((a) => a.id === activeId.value) ?? animales.value[0],
@@ -166,6 +212,7 @@ async function guardar() {
 const mostrarBaja = ref(false);
 const dandoBaja = ref(false);
 const bajaError = ref('');
+const mostrarConfirmarEventosPendientes = ref(false);
 const bajaForm = ref({
   motivo: 'VENTA' as MotivoBaja,
   fecha: new Date().toISOString().slice(0, 10),
@@ -176,10 +223,11 @@ function abrirBaja() {
   showForm.value = false;
   bajaForm.value = { motivo: 'VENTA', fecha: new Date().toISOString().slice(0, 10), observaciones: '' };
   bajaError.value = '';
+  mostrarConfirmarEventosPendientes.value = false;
   mostrarBaja.value = true;
 }
 
-async function confirmarBaja() {
+async function confirmarBaja(confirmarConEventosPendientes = false) {
   if (!selected.value) return;
   bajaError.value = '';
   dandoBaja.value = true;
@@ -188,13 +236,20 @@ async function confirmarBaja() {
       motivo: bajaForm.value.motivo,
       fecha: bajaForm.value.fecha,
       observaciones: bajaForm.value.observaciones || undefined,
+      confirmarConEventosPendientes,
     });
     mostrarBaja.value = false;
     await cargar();
   } catch (error) {
-    bajaError.value = isAxiosError(error)
-      ? ((error.response?.data as { message?: string } | undefined)?.message ?? 'No se pudo dar de baja al animal.')
-      : 'No se pudo dar de baja al animal.';
+    if (isAxiosError(error) && error.response?.status === 409) {
+      const data = error.response.data as { code?: string; message?: string };
+      bajaError.value = data.message ?? 'Este animal tiene un evento reproductivo sin cerrar.';
+      mostrarConfirmarEventosPendientes.value = data.code === 'EVENTOS_REPRODUCTIVOS_PENDIENTES';
+    } else {
+      bajaError.value = isAxiosError(error)
+        ? ((error.response?.data as { message?: string } | undefined)?.message ?? 'No se pudo dar de baja al animal.')
+        : 'No se pudo dar de baja al animal.';
+    }
   } finally {
     dandoBaja.value = false;
   }
@@ -206,18 +261,63 @@ async function confirmarBaja() {
     <div class="ganado-view__toolbar">
       <div v-if="isMobile" class="ganado-view__search-row">
         <input v-model="search" class="ganado-view__search" placeholder="Buscar por identificador…" />
+        <button type="button" class="ganado-view__add-btn" @click="showFiltros = !showFiltros">
+          <AppIcon name="filter" :size="16" />
+        </button>
         <button type="button" class="ganado-view__add-btn" @click="showForm ? cancelarForm() : (showForm = true)">
           <AppIcon name="plus" :size="18" />
         </button>
       </div>
-      <button
-        v-else
-        type="button"
-        class="ganado-view__new-btn"
-        @click="showForm ? cancelarForm() : (showForm = true)"
-      >
-        {{ showForm ? 'Cerrar formulario' : 'Registrar nuevo bovino' }}
-      </button>
+      <template v-else>
+        <button type="button" class="ganado-view__btn-ghost" @click="showFiltros = !showFiltros">
+          {{ showFiltros ? 'Ocultar filtros' : 'Filtros' }}
+        </button>
+        <button
+          type="button"
+          class="ganado-view__new-btn"
+          @click="showForm ? cancelarForm() : (showForm = true)"
+        >
+          {{ showForm ? 'Cerrar formulario' : 'Registrar nuevo bovino' }}
+        </button>
+      </template>
+    </div>
+
+    <div v-if="showFiltros" class="ganado-view__form">
+      <div class="ganado-view__form-grid">
+        <div class="ganado-view__field">
+          <label>Estado</label>
+          <select v-model="filtros.estado">
+            <option value="">Todos</option>
+            <option v-for="e in ESTADO_OPCIONES" :key="e" :value="e">{{ ESTADO_LABELS[e] }}</option>
+          </select>
+        </div>
+        <div class="ganado-view__field">
+          <label>Sexo</label>
+          <select v-model="filtros.sexo">
+            <option value="">Todos</option>
+            <option value="HEMBRA">Hembra</option>
+            <option value="MACHO">Macho</option>
+          </select>
+        </div>
+        <div class="ganado-view__field">
+          <label>Potrero</label>
+          <select v-model="filtros.potreroActualId">
+            <option value="">Todos</option>
+            <option v-for="p in potreros" :key="p.id" :value="p.id">{{ p.nombre }}</option>
+          </select>
+        </div>
+        <div class="ganado-view__field">
+          <label>Edad mínima (años)</label>
+          <input v-model="filtros.edadMinAnios" type="number" min="0" step="0.5" placeholder="0" />
+        </div>
+        <div class="ganado-view__field">
+          <label>Edad máxima (años)</label>
+          <input v-model="filtros.edadMaxAnios" type="number" min="0" step="0.5" placeholder="10" />
+        </div>
+      </div>
+      <div class="ganado-view__form-actions">
+        <button type="button" class="ganado-view__btn-ghost" @click="limpiarFiltros">Limpiar filtros</button>
+      </div>
     </div>
 
     <div v-if="showForm" class="ganado-view__form">
@@ -276,7 +376,18 @@ async function confirmarBaja() {
 
     <div v-if="mostrarBaja && selected" class="ganado-view__form">
       <div class="ganado-view__form-title">Dar de baja a {{ selected.identificador }}</div>
-      <div v-if="bajaError" class="ganado-view__form-error">{{ bajaError }}</div>
+      <div v-if="bajaError" class="ganado-view__form-error">
+        {{ bajaError }}
+        <button
+          v-if="mostrarConfirmarEventosPendientes"
+          type="button"
+          class="ganado-view__confirm-btn"
+          :disabled="dandoBaja"
+          @click="confirmarBaja(true)"
+        >
+          Confirmar de todas formas
+        </button>
+      </div>
       <div class="ganado-view__form-grid">
         <div class="ganado-view__field">
           <label>Motivo</label>
@@ -303,7 +414,7 @@ async function confirmarBaja() {
           type="button"
           class="ganado-view__btn-primary"
           :disabled="dandoBaja"
-          @click="confirmarBaja"
+          @click="confirmarBaja()"
         >
           {{ dandoBaja ? 'Guardando…' : 'Confirmar baja' }}
         </button>
@@ -317,7 +428,7 @@ async function confirmarBaja() {
 
     <!-- Mobile: acordeón -->
     <div v-else-if="isMobile" class="ganado-view__accordion">
-      <div v-for="c in filteredCows" :key="c.id" class="ganado-view__acc-item">
+      <div v-for="c in animales" :key="c.id" class="ganado-view__acc-item">
         <button type="button" class="ganado-view__acc-head" @click="toggleAccordion(c.id)">
           <div>
             <div class="ganado-view__acc-name">{{ c.identificador }}</div>
@@ -367,6 +478,20 @@ async function confirmarBaja() {
           </div>
         </div>
       </div>
+      <div v-if="totalPaginas > 1" class="ganado-view__pagination">
+        <button type="button" class="ganado-view__btn-ghost" :disabled="page === 1" @click="irAPagina(page - 1)">
+          Anterior
+        </button>
+        <span class="ganado-view__muted">Página {{ page }} de {{ totalPaginas }}</span>
+        <button
+          type="button"
+          class="ganado-view__btn-ghost"
+          :disabled="page === totalPaginas"
+          @click="irAPagina(page + 1)"
+        >
+          Siguiente
+        </button>
+      </div>
     </div>
 
     <!-- Desktop: lista + detalle -->
@@ -375,7 +500,7 @@ async function confirmarBaja() {
         <input v-model="search" class="ganado-view__search" placeholder="Buscar por identificador…" />
         <div class="ganado-view__list-items">
           <button
-            v-for="c in filteredCows"
+            v-for="c in animales"
             :key="c.id"
             type="button"
             class="ganado-view__list-item"
@@ -389,6 +514,20 @@ async function confirmarBaja() {
             <span class="ganado-view__status" :style="estiloEstado(c.estado)">
               {{ ESTADO_LABELS[c.estado] }}
             </span>
+          </button>
+        </div>
+        <div v-if="totalPaginas > 1" class="ganado-view__pagination">
+          <button type="button" class="ganado-view__btn-ghost" :disabled="page === 1" @click="irAPagina(page - 1)">
+            Anterior
+          </button>
+          <span class="ganado-view__muted">{{ page }}/{{ totalPaginas }}</span>
+          <button
+            type="button"
+            class="ganado-view__btn-ghost"
+            :disabled="page === totalPaginas"
+            @click="irAPagina(page + 1)"
+          >
+            Siguiente
           </button>
         </div>
       </div>
@@ -530,6 +669,51 @@ async function confirmarBaja() {
     border-radius: 12px;
     padding: 0.65rem 0.85rem;
     font-size: 0.8rem;
+    font-weight: 600;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    align-items: flex-start;
+  }
+
+  &__confirm-btn {
+    background: var(--color-warn);
+    color: var(--color-white);
+    border: none;
+    border-radius: 999px;
+    padding: 0.4rem 0.9rem;
+    font-weight: 700;
+    font-size: 0.72rem;
+    cursor: pointer;
+    font-family: inherit;
+
+    &:disabled {
+      opacity: 0.6;
+      cursor: progress;
+    }
+  }
+
+  &__pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.85rem;
+    padding-top: 0.4rem;
+
+    .ganado-view__btn-ghost {
+      padding: 0.45rem 0.9rem;
+      font-size: 0.72rem;
+
+      &:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+    }
+  }
+
+  &__muted {
+    font-size: 0.75rem;
+    color: rgba(40, 54, 24, 0.55);
     font-weight: 600;
   }
 

@@ -54,13 +54,27 @@ export class GanadoService {
   }
 
   async listar(tenantId: string, query: ListarAnimalesQueryDto) {
+    const ahora = new Date();
+    // edadMinMeses: el animal tiene AL MENOS esa edad -> nació antes de (hoy - min meses).
+    // edadMaxMeses: el animal tiene COMO MUCHO esa edad -> nació después de (hoy - max meses).
+    const fechaNacimientoMax = query.edadMinMeses
+      ? new Date(Date.UTC(ahora.getUTCFullYear(), ahora.getUTCMonth() - query.edadMinMeses, ahora.getUTCDate()))
+      : undefined;
+    const fechaNacimientoMin = query.edadMaxMeses
+      ? new Date(Date.UTC(ahora.getUTCFullYear(), ahora.getUTCMonth() - query.edadMaxMeses, ahora.getUTCDate()))
+      : undefined;
+
     const where: Prisma.AnimalWhereInput = {
       tenantId,
       ...(query.estado && { estado: query.estado }),
       ...(query.sexo && { sexo: query.sexo }),
       ...(query.categoria && { categoria: query.categoria }),
+      ...(query.potreroActualId && { potreroActualId: query.potreroActualId }),
       ...(query.search && {
         identificador: { contains: query.search, mode: 'insensitive' },
+      }),
+      ...((fechaNacimientoMin || fechaNacimientoMax) && {
+        fechaNacimiento: { gte: fechaNacimientoMin, lte: fechaNacimientoMax },
       }),
     };
 
@@ -103,6 +117,25 @@ export class GanadoService {
 
   async darBaja(tenantId: string, id: string, dto: DarBajaDto, usuarioId: string) {
     await this.obtener(tenantId, id);
+
+    if (!dto.confirmarConEventosPendientes) {
+      // US-4.3: advertir (no bloquear) si el animal tiene un servicio
+      // reproductivo sin cerrar (sin diagnóstico negativo ni parto) —
+      // consulta directa a Servicio, sin depender de ReproduccionModule
+      // para evitar un import circular (ReproduccionModule ya importa
+      // GanadoModule para dar de alta crías).
+      const eventoPendiente = await this.prisma.servicio.findFirst({
+        where: { tenantId, animalId: id, estado: { not: 'VACIO' }, parto: null },
+      });
+      if (eventoPendiente) {
+        throw new ConflictException({
+          code: 'EVENTOS_REPRODUCTIVOS_PENDIENTES',
+          message:
+            'Este animal tiene un evento reproductivo sin cerrar (servicio con diagnóstico pendiente o preñez confirmada). Confirmá si igual querés darlo de baja.',
+          servicioId: eventoPendiente.id,
+        });
+      }
+    }
 
     const [, baja] = await this.prisma.$transaction([
       this.prisma.animal.update({ where: { id }, data: { estado: 'INACTIVO' } }),

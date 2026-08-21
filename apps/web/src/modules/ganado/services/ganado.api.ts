@@ -44,8 +44,26 @@ export interface ListaAnimales {
   limit: number;
 }
 
+export interface ListarAnimalesParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+  estado?: EstadoAnimal;
+  sexo?: SexoAnimal;
+  potreroActualId?: string;
+  edadMinMeses?: number;
+  edadMaxMeses?: number;
+}
+
+export interface DarBajaPayload {
+  motivo: MotivoBaja;
+  fecha: string;
+  observaciones?: string;
+  confirmarConEventosPendientes?: boolean;
+}
+
 export const ganadoApi = {
-  listar(params: { limit?: number; search?: string } = {}) {
+  listar(params: ListarAnimalesParams = {}) {
     return http.get<ListaAnimales>('/ganado', { params }).then((r) => r.data);
   },
   obtener(id: string) {
@@ -57,7 +75,7 @@ export const ganadoApi = {
   actualizar(id: string, payload: Partial<CrearAnimalPayload>) {
     return http.patch<Animal>(`/ganado/${id}`, payload).then((r) => r.data);
   },
-  darBaja(id: string, payload: { motivo: MotivoBaja; fecha: string; observaciones?: string }) {
+  darBaja(id: string, payload: DarBajaPayload) {
     return http.post(`/ganado/${id}/baja`, payload);
   },
 };

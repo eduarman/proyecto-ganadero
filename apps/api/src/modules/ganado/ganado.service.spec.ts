@@ -15,6 +15,9 @@ function buildDeps() {
     animalBaja: {
       create: jest.fn(),
     },
+    servicio: {
+      findFirst: jest.fn(),
+    },
     $transaction: jest.fn(),
   };
 
@@ -88,6 +91,32 @@ describe('GanadoService.listar', () => {
       expect.objectContaining({ where: { tenantId: TENANT_B } }),
     );
   });
+
+  it('filtra por potrero actual cuando se indica', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.animal.findMany.mockResolvedValue([]);
+    prisma.animal.count.mockResolvedValue(0);
+
+    await service.listar(TENANT_A, { page: 1, limit: 20, potreroActualId: 'potrero-1' });
+
+    expect(prisma.animal.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ potreroActualId: 'potrero-1' }) }),
+    );
+  });
+
+  it('traduce el rango de edad en meses a un rango de fechaNacimiento', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.animal.findMany.mockResolvedValue([]);
+    prisma.animal.count.mockResolvedValue(0);
+
+    await service.listar(TENANT_A, { page: 1, limit: 20, edadMinMeses: 12, edadMaxMeses: 24 });
+
+    const llamada = prisma.animal.findMany.mock.calls[0][0];
+    expect(llamada.where.fechaNacimiento.gte).toBeInstanceOf(Date);
+    expect(llamada.where.fechaNacimiento.lte).toBeInstanceOf(Date);
+    // edadMinMeses (12) -> nació antes que edadMaxMeses (24) -> nació después
+    expect(llamada.where.fechaNacimiento.gte.getTime()).toBeLessThan(llamada.where.fechaNacimiento.lte.getTime());
+  });
 });
 
 describe('GanadoService.obtener', () => {
@@ -106,6 +135,7 @@ describe('GanadoService.darBaja', () => {
   it('marca estado=INACTIVO y crea el registro de baja dentro de una transacción', async () => {
     const { service, prisma } = buildDeps();
     prisma.animal.findFirst.mockResolvedValue({ id: 'animal-1' });
+    prisma.servicio.findFirst.mockResolvedValue(null);
     prisma.$transaction.mockResolvedValue([{ id: 'animal-1' }, { id: 'baja-1' }]);
 
     const resultado = await service.darBaja(
@@ -116,6 +146,33 @@ describe('GanadoService.darBaja', () => {
     );
 
     expect(resultado).toEqual({ id: 'baja-1' });
+    expect(prisma.$transaction).toHaveBeenCalled();
+  });
+
+  it('rechaza con 409 si el animal tiene un servicio reproductivo sin cerrar (US-4.3)', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.animal.findFirst.mockResolvedValue({ id: 'animal-1' });
+    prisma.servicio.findFirst.mockResolvedValue({ id: 'servicio-1' });
+
+    await expect(
+      service.darBaja(TENANT_A, 'animal-1', { motivo: 'VENTA', fecha: '2026-08-20' }, 'usuario-1'),
+    ).rejects.toThrow(ConflictException);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('permite confirmar la baja igual con confirmarConEventosPendientes, sin volver a chequear', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.animal.findFirst.mockResolvedValue({ id: 'animal-1' });
+    prisma.$transaction.mockResolvedValue([{ id: 'animal-1' }, { id: 'baja-1' }]);
+
+    await service.darBaja(
+      TENANT_A,
+      'animal-1',
+      { motivo: 'VENTA', fecha: '2026-08-20', confirmarConEventosPendientes: true },
+      'usuario-1',
+    );
+
+    expect(prisma.servicio.findFirst).not.toHaveBeenCalled();
     expect(prisma.$transaction).toHaveBeenCalled();
   });
 });
