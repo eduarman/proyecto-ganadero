@@ -3,6 +3,7 @@ import { useRoute } from 'vue-router';
 import { useAuthStore } from '../stores/auth.store';
 import { SIDEBAR_NAV } from '../shared/nav';
 import AppIcon from '../shared/components/AppIcon.vue';
+import TenantSwitcher from '../shared/components/TenantSwitcher.vue';
 
 const route = useRoute();
 const auth = useAuthStore();
@@ -53,6 +54,8 @@ const auth = useAuthStore();
           <AppIcon name="search" :size="16" style="opacity: 0.6" />
           <span>Buscar…</span>
         </div>
+
+        <TenantSwitcher />
 
         <div class="app-layout__icon-btn">
           <AppIcon name="bell" :size="16" style="opacity: 0.65" />

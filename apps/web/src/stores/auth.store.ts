@@ -83,6 +83,12 @@ export const useAuthStore = defineStore('auth', {
       }
     },
 
+    async switchTenant(negocioId: string) {
+      const { accessToken } = await authApi.switchTenant(negocioId);
+      this.accessToken = accessToken;
+      this.negocioActivo = this.negocios.find((n) => n.id === negocioId) ?? this.negocioActivo;
+    },
+
     async logout() {
       try {
         await authApi.logout();

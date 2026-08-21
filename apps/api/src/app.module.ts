@@ -10,6 +10,7 @@ import { SanidadModule } from './modules/sanidad/sanidad.module';
 import { ProduccionModule } from './modules/produccion/produccion.module';
 import { ReproduccionModule } from './modules/reproduccion/reproduccion.module';
 import { AlimentacionModule } from './modules/alimentacion/alimentacion.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { AlimentacionModule } from './modules/alimentacion/alimentacion.module';
     ProduccionModule,
     ReproduccionModule,
     AlimentacionModule,
+    DashboardModule,
   ],
   providers: [
     {

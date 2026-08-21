@@ -147,6 +147,12 @@ export class ReproduccionService {
     });
   }
 
+  contarPrenadas(tenantId: string) {
+    return this.prisma.servicio.count({
+      where: { tenantId, estado: 'CONFIRMADO_PRENADA', parto: null },
+    });
+  }
+
   calendario(tenantId: string) {
     return this.prisma.servicio.findMany({
       where: { tenantId, estado: 'CONFIRMADO_PRENADA', parto: null },

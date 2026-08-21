@@ -7,5 +7,6 @@ import { ReproduccionService } from './reproduccion.service';
   imports: [GanadoModule],
   controllers: [ReproduccionController],
   providers: [ReproduccionService],
+  exports: [ReproduccionService],
 })
 export class ReproduccionModule {}

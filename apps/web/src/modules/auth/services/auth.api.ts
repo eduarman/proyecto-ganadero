@@ -41,4 +41,7 @@ export const authApi = {
   logout() {
     return http.post<void>('/auth/logout');
   },
+  switchTenant(negocioId: string) {
+    return http.post<{ accessToken: string }>('/auth/switch-tenant', { negocioId }).then((r) => r.data);
+  },
 };

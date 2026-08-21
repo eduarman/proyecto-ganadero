@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth.store';
 import { BOTTOM_NAV, MORE_KEYS } from '../shared/nav';
 import AppIcon from '../shared/components/AppIcon.vue';
+import TenantSwitcher from '../shared/components/TenantSwitcher.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -39,6 +40,7 @@ function isActive(key: string) {
         </div>
       </div>
       <div class="mobile-layout__actions">
+        <TenantSwitcher />
         <div class="mobile-layout__icon-btn">
           <AppIcon name="bell" :size="15" style="opacity: 0.7" />
         </div>

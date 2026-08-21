@@ -5,5 +5,6 @@ import { SanidadService } from './sanidad.service';
 @Module({
   controllers: [SanidadController],
   providers: [SanidadService],
+  exports: [SanidadService],
 })
 export class SanidadModule {}
