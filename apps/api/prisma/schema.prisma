@@ -1,5 +1,11 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  // "native" solo alcanza el openssl que Prisma detecta en la imagen de
+  // build; las libs de Chromium (Dockerfile del módulo reportes) trajeron
+  // libssl3 (openssl-3.0.x) como dependencia transitiva al runner, distinto
+  // de lo que "native" había detectado — se declaran ambos explícitamente
+  // para no depender de la autodetección en cada build.
+  binaryTargets = ["native", "debian-openssl-1.1.x", "debian-openssl-3.0.x"]
 }
 
 datasource db {
