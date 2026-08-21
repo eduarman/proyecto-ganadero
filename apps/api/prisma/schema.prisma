@@ -19,11 +19,11 @@ enum EstadoCuenta {
 }
 
 model Plan {
-  id             String  @id @default(uuid())
-  nombre         String  @unique
-  maxUsuarios    Int     @map("max_usuarios")
-  maxNegocios    Int     @map("max_negocios")
-  precioMensual  Decimal @map("precio_mensual") @db.Decimal(10, 2)
+  id            String  @id @default(uuid())
+  nombre        String  @unique
+  maxUsuarios   Int     @map("max_usuarios")
+  maxNegocios   Int     @map("max_negocios")
+  precioMensual Decimal @map("precio_mensual") @db.Decimal(10, 2)
 
   cuentas Cuenta[]
 
@@ -61,43 +61,48 @@ model Negocio {
   createdAt DateTime      @default(now()) @map("created_at")
   updatedAt DateTime      @updatedAt @map("updated_at")
 
-  cuenta          Cuenta           @relation(fields: [cuentaId], references: [id])
-  usuarioNegocios UsuarioNegocio[]
-  ultimoDeUsuario Usuario[]        @relation("UltimoNegocio")
-  animales        Animal[]
-  potreros        Potrero[]
-  productosSanitarios  ProductoSanitario[]
+  cuenta                 Cuenta                 @relation(fields: [cuentaId], references: [id])
+  usuarioNegocios        UsuarioNegocio[]
+  ultimoDeUsuario        Usuario[]              @relation("UltimoNegocio")
+  animales               Animal[]
+  potreros               Potrero[]
+  productosSanitarios    ProductoSanitario[]
   aplicacionesSanitarias AplicacionSanitaria[]
-  registrosLeche       RegistroLeche[]
-  registrosLecheTotal  RegistroLecheTotal[]
+  registrosLeche         RegistroLeche[]
+  registrosLecheTotal    RegistroLecheTotal[]
   servicios              Servicio[]
   diagnosticosGestacion  DiagnosticoGestacion[]
   partos                 Parto[]
+  insumosAlimentacion    InsumoAlimentacion[]
+  planesAlimentacion     PlanAlimentacion[]
+  planAsignaciones       PlanAsignacion[]
+  suministros            Suministro[]
 
   @@map("negocios")
 }
 
 model Usuario {
-  id                 String    @id @default(uuid())
-  email              String    @unique
-  passwordHash       String    @map("password_hash")
-  nombre             String
-  emailVerificadoEn  DateTime? @map("email_verificado_en")
-  twoFactorEnabled   Boolean   @default(false) @map("two_factor_enabled")
-  cuentaId           String    @map("cuenta_id")
-  ultimoNegocioId    String?   @map("ultimo_negocio_id")
-  createdAt          DateTime  @default(now()) @map("created_at")
-  updatedAt          DateTime  @updatedAt @map("updated_at")
+  id                String    @id @default(uuid())
+  email             String    @unique
+  passwordHash      String    @map("password_hash")
+  nombre            String
+  emailVerificadoEn DateTime? @map("email_verificado_en")
+  twoFactorEnabled  Boolean   @default(false) @map("two_factor_enabled")
+  cuentaId          String    @map("cuenta_id")
+  ultimoNegocioId   String?   @map("ultimo_negocio_id")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
 
-  cuenta               Cuenta                 @relation(fields: [cuentaId], references: [id])
-  ultimoNegocio        Negocio?               @relation("UltimoNegocio", fields: [ultimoNegocioId], references: [id])
-  usuarioNegocios      UsuarioNegocio[]
-  refreshTokens        RefreshToken[]
-  tokensRecuperacion   TokenRecuperacion[]
-  tokensVerificacion   TokenVerificacionEmail[]
+  cuenta                 Cuenta                   @relation(fields: [cuentaId], references: [id])
+  ultimoNegocio          Negocio?                 @relation("UltimoNegocio", fields: [ultimoNegocioId], references: [id])
+  usuarioNegocios        UsuarioNegocio[]
+  refreshTokens          RefreshToken[]
+  tokensRecuperacion     TokenRecuperacion[]
+  tokensVerificacion     TokenVerificacionEmail[]
   aplicacionesSanitarias AplicacionSanitaria[]
-  registrosLeche       RegistroLeche[]
-  registrosLecheTotal  RegistroLecheTotal[]
+  registrosLeche         RegistroLeche[]
+  registrosLecheTotal    RegistroLecheTotal[]
+  suministrosRegistrados Suministro[]
 
   @@map("usuarios")
 }
@@ -129,13 +134,13 @@ model UsuarioNegocio {
 // ---------------------------------------------------------------------------
 
 model RefreshToken {
-  id          String    @id @default(uuid())
-  usuarioId   String    @map("usuario_id")
-  tokenHash   String    @unique @map("token_hash")
-  familiaId   String    @map("familia_id")
-  revocadoEn  DateTime? @map("revocado_en")
-  expiraEn    DateTime  @map("expira_en")
-  createdAt   DateTime  @default(now()) @map("created_at")
+  id         String    @id @default(uuid())
+  usuarioId  String    @map("usuario_id")
+  tokenHash  String    @unique @map("token_hash")
+  familiaId  String    @map("familia_id")
+  revocadoEn DateTime? @map("revocado_en")
+  expiraEn   DateTime  @map("expira_en")
+  createdAt  DateTime  @default(now()) @map("created_at")
 
   usuario Usuario @relation(fields: [usuarioId], references: [id])
 
@@ -217,35 +222,35 @@ enum MotivoBaja {
 }
 
 model Animal {
-  id                String       @id @default(uuid())
-  tenantId          String       @map("tenant_id")
-  identificador     String
-  especie           Especie
-  sexo              SexoAnimal
-  fechaNacimiento   DateTime?    @map("fecha_nacimiento")
-  categoria         String?
-  raza              String?
-  color             String?
-  pesoNacimiento    Decimal?     @map("peso_nacimiento") @db.Decimal(6, 2)
+  id              String       @id @default(uuid())
+  tenantId        String       @map("tenant_id")
+  identificador   String
+  especie         Especie
+  sexo            SexoAnimal
+  fechaNacimiento DateTime?    @map("fecha_nacimiento")
+  categoria       String?
+  raza            String?
+  color           String?
+  pesoNacimiento  Decimal?     @map("peso_nacimiento") @db.Decimal(6, 2)
   // Padre/madre como texto libre por ahora — sin vincular a otros animales
   // del sistema (árbol genealógico real, diferido).
-  madreRefExterna   String?      @map("madre_ref_externa")
-  padreRefExterna   String?      @map("padre_ref_externa")
-  fotoUrl           String?      @map("foto_url")
-  potreroActualId   String?      @map("potrero_actual_id")
-  estado            EstadoAnimal @default(ACTIVO)
-  createdAt         DateTime     @default(now()) @map("created_at")
-  updatedAt         DateTime     @updatedAt @map("updated_at")
+  madreRefExterna String?      @map("madre_ref_externa")
+  padreRefExterna String?      @map("padre_ref_externa")
+  fotoUrl         String?      @map("foto_url")
+  potreroActualId String?      @map("potrero_actual_id")
+  estado          EstadoAnimal @default(ACTIVO)
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
 
-  negocio       Negocio      @relation(fields: [tenantId], references: [id])
-  potreroActual Potrero?     @relation(fields: [potreroActualId], references: [id])
-  bajas         AnimalBaja[]
+  negocio                Negocio               @relation(fields: [tenantId], references: [id])
+  potreroActual          Potrero?              @relation(fields: [potreroActualId], references: [id])
+  bajas                  AnimalBaja[]
   aplicacionesSanitarias AplicacionSanitaria[]
-  registrosLeche RegistroLeche[]
-  serviciosComoHembra Servicio[] @relation("ServicioHembra")
-  serviciosComoMacho  Servicio[] @relation("ServicioMacho")
-  partosComoMadre     Parto[]    @relation("PartoMadre")
-  partoComoCria       Parto?     @relation("PartoCria")
+  registrosLeche         RegistroLeche[]
+  serviciosComoHembra    Servicio[]            @relation("ServicioHembra")
+  serviciosComoMacho     Servicio[]            @relation("ServicioMacho")
+  partosComoMadre        Parto[]               @relation("PartoMadre")
+  partoComoCria          Parto?                @relation("PartoCria")
 
   @@unique([tenantId, identificador])
   @@index([tenantId, estado])
@@ -253,14 +258,14 @@ model Animal {
 }
 
 model AnimalBaja {
-  id           String     @id @default(uuid())
-  tenantId     String     @map("tenant_id")
-  animalId     String     @map("animal_id")
-  motivo       MotivoBaja
-  fecha        DateTime
+  id            String     @id @default(uuid())
+  tenantId      String     @map("tenant_id")
+  animalId      String     @map("animal_id")
+  motivo        MotivoBaja
+  fecha         DateTime
   observaciones String?
-  usuarioId    String     @map("usuario_id")
-  createdAt    DateTime   @default(now()) @map("created_at")
+  usuarioId     String     @map("usuario_id")
+  createdAt     DateTime   @default(now()) @map("created_at")
 
   animal Animal @relation(fields: [animalId], references: [id])
 
@@ -278,18 +283,20 @@ enum EstadoPotrero {
 }
 
 model Potrero {
-  id              String        @id @default(uuid())
-  tenantId        String        @map("tenant_id")
-  nombre          String
-  areaHectareas   Decimal       @map("area_hectareas") @db.Decimal(8, 2)
-  tipoPasto       String?       @map("tipo_pasto")
-  capacidadCarga  Decimal?      @map("capacidad_carga") @db.Decimal(6, 2)
-  estado          EstadoPotrero @default(ACTIVO)
-  createdAt       DateTime      @default(now()) @map("created_at")
-  updatedAt       DateTime      @updatedAt @map("updated_at")
+  id             String        @id @default(uuid())
+  tenantId       String        @map("tenant_id")
+  nombre         String
+  areaHectareas  Decimal       @map("area_hectareas") @db.Decimal(8, 2)
+  tipoPasto      String?       @map("tipo_pasto")
+  capacidadCarga Decimal?      @map("capacidad_carga") @db.Decimal(6, 2)
+  estado         EstadoPotrero @default(ACTIVO)
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
 
-  negocio  Negocio  @relation(fields: [tenantId], references: [id])
-  animales Animal[]
+  negocio          Negocio          @relation(fields: [tenantId], references: [id])
+  animales         Animal[]
+  planAsignaciones PlanAsignacion[]
+  suministros      Suministro[]
 
   @@unique([tenantId, nombre])
   @@map("potreros")
@@ -312,17 +319,17 @@ enum EstadoProductoSanitario {
 }
 
 model ProductoSanitario {
-  id                     String                  @id @default(uuid())
-  tenantId               String                  @map("tenant_id")
-  nombre                 String
-  tipo                   TipoProductoSanitario
-  dosisRecomendada       String?                 @map("dosis_recomendada")
-  intervaloRefuerzoDias  Int?                    @map("intervalo_refuerzo_dias")
-  estado                 EstadoProductoSanitario @default(ACTIVO)
-  createdAt              DateTime                @default(now()) @map("created_at")
-  updatedAt              DateTime                @updatedAt @map("updated_at")
+  id                    String                  @id @default(uuid())
+  tenantId              String                  @map("tenant_id")
+  nombre                String
+  tipo                  TipoProductoSanitario
+  dosisRecomendada      String?                 @map("dosis_recomendada")
+  intervaloRefuerzoDias Int?                    @map("intervalo_refuerzo_dias")
+  estado                EstadoProductoSanitario @default(ACTIVO)
+  createdAt             DateTime                @default(now()) @map("created_at")
+  updatedAt             DateTime                @updatedAt @map("updated_at")
 
-  negocio      Negocio                @relation(fields: [tenantId], references: [id])
+  negocio      Negocio               @relation(fields: [tenantId], references: [id])
   aplicaciones AplicacionSanitaria[]
 
   @@unique([tenantId, nombre])
@@ -484,11 +491,127 @@ model Parto {
   observaciones String?
   createdAt     DateTime  @default(now()) @map("created_at")
 
-  negocio  Negocio  @relation(fields: [tenantId], references: [id])
+  negocio  Negocio   @relation(fields: [tenantId], references: [id])
   servicio Servicio? @relation(fields: [servicioId], references: [id])
   madre    Animal    @relation("PartoMadre", fields: [madreId], references: [id])
   cria     Animal?   @relation("PartoCria", fields: [criaAnimalId], references: [id])
 
   @@index([tenantId, madreId])
   @@map("partos")
+}
+
+// ---------------------------------------------------------------------------
+// Alimentación — ver .claude/specs/alimentacion/design.md
+// ---------------------------------------------------------------------------
+
+enum EstadoInsumo {
+  ACTIVO
+  INACTIVO
+}
+
+enum TipoPlanAlimentacion {
+  PASTOREO
+  SUPLEMENTACION
+  ESTABULADO
+  MIXTO
+}
+
+enum EstadoPlanAlimentacion {
+  ACTIVO
+  INACTIVO
+}
+
+enum UnidadTiempoPlan {
+  DIA
+  SEMANA
+}
+
+enum DestinoPlanItem {
+  ANIMAL
+  LOTE
+}
+
+model InsumoAlimentacion {
+  id            String       @id @default(uuid())
+  tenantId      String       @map("tenant_id")
+  nombre        String
+  unidadMedida  String       @map("unidad_medida")
+  costoUnitario Decimal?     @map("costo_unitario") @db.Decimal(10, 2)
+  estado        EstadoInsumo @default(ACTIVO)
+  createdAt     DateTime     @default(now()) @map("created_at")
+
+  negocio     Negocio                @relation(fields: [tenantId], references: [id])
+  planItems   PlanAlimentacionItem[]
+  suministros Suministro[]
+
+  @@unique([tenantId, nombre])
+  @@map("insumos_alimentacion")
+}
+
+model PlanAlimentacion {
+  id        String                 @id @default(uuid())
+  tenantId  String                 @map("tenant_id")
+  nombre    String
+  tipo      TipoPlanAlimentacion
+  estado    EstadoPlanAlimentacion @default(ACTIVO)
+  createdAt DateTime               @default(now()) @map("created_at")
+
+  negocio      Negocio                @relation(fields: [tenantId], references: [id])
+  items        PlanAlimentacionItem[]
+  asignaciones PlanAsignacion[]
+
+  @@unique([tenantId, nombre])
+  @@map("planes_alimentacion")
+}
+
+model PlanAlimentacionItem {
+  id           String           @id @default(uuid())
+  planId       String           @map("plan_id")
+  insumoId     String           @map("insumo_id")
+  cantidad     Decimal          @db.Decimal(10, 2)
+  unidadTiempo UnidadTiempoPlan @map("unidad_tiempo")
+  por          DestinoPlanItem
+
+  plan   PlanAlimentacion   @relation(fields: [planId], references: [id])
+  insumo InsumoAlimentacion @relation(fields: [insumoId], references: [id])
+
+  @@map("plan_alimentacion_items")
+}
+
+model PlanAsignacion {
+  id          String    @id @default(uuid())
+  tenantId    String    @map("tenant_id")
+  planId      String    @map("plan_id")
+  potreroId   String?   @map("potrero_id")
+  animalIds   String[]  @map("animal_ids")
+  fechaInicio DateTime  @map("fecha_inicio")
+  fechaFin    DateTime? @map("fecha_fin")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  negocio Negocio          @relation(fields: [tenantId], references: [id])
+  plan    PlanAlimentacion @relation(fields: [planId], references: [id])
+  potrero Potrero?         @relation(fields: [potreroId], references: [id])
+
+  @@index([tenantId, planId])
+  @@map("plan_asignaciones")
+}
+
+model Suministro {
+  id              String   @id @default(uuid())
+  tenantId        String   @map("tenant_id")
+  fecha           DateTime
+  insumoId        String   @map("insumo_id")
+  potreroId       String?  @map("potrero_id")
+  animalIds       String[] @map("animal_ids")
+  cantidad        Decimal  @db.Decimal(10, 2)
+  registradoPorId String   @map("registrado_por")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  negocio       Negocio            @relation(fields: [tenantId], references: [id])
+  insumo        InsumoAlimentacion @relation(fields: [insumoId], references: [id])
+  potrero       Potrero?           @relation(fields: [potreroId], references: [id])
+  registradoPor Usuario            @relation(fields: [registradoPorId], references: [id])
+
+  @@index([tenantId, fecha])
+  @@map("suministros")
 }

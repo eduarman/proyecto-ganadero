@@ -9,6 +9,7 @@ import { PotrerosModule } from './modules/potreros/potreros.module';
 import { SanidadModule } from './modules/sanidad/sanidad.module';
 import { ProduccionModule } from './modules/produccion/produccion.module';
 import { ReproduccionModule } from './modules/reproduccion/reproduccion.module';
+import { AlimentacionModule } from './modules/alimentacion/alimentacion.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { ReproduccionModule } from './modules/reproduccion/reproduccion.module';
     SanidadModule,
     ProduccionModule,
     ReproduccionModule,
+    AlimentacionModule,
   ],
   providers: [
     {
