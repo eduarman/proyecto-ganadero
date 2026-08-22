@@ -10,6 +10,17 @@ import { CrearAplicacionDto } from './dto/crear-aplicacion.dto';
 import { CrearProductoSanitarioDto } from './dto/crear-producto-sanitario.dto';
 import { SanidadService } from './sanidad.service';
 
+// US-5.2: VETERINARIO_EXTERNO puede ver y registrar en sanidad igual que
+// ADMIN_NEGOCIO/MAYORDOMO (security-roles.md lo marca RW completo para este
+// módulo, a diferencia de su acceso nulo al resto de los módulos operativos).
+const ROLES_GESTION = [RolUsuario.ADMIN_NEGOCIO, RolUsuario.MAYORDOMO, RolUsuario.VETERINARIO_EXTERNO] as const;
+const ROLES_REGISTRO = [
+  RolUsuario.ADMIN_NEGOCIO,
+  RolUsuario.MAYORDOMO,
+  RolUsuario.OPERARIO,
+  RolUsuario.VETERINARIO_EXTERNO,
+] as const;
+
 @Controller('sanidad')
 @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
 export class SanidadController {
@@ -21,13 +32,13 @@ export class SanidadController {
   }
 
   @Post('productos')
-  @Roles(RolUsuario.ADMIN_NEGOCIO, RolUsuario.MAYORDOMO)
+  @Roles(...ROLES_GESTION)
   crearProducto(@CurrentUser() user: JwtPayload, @Body() dto: CrearProductoSanitarioDto) {
     return this.sanidadService.crearProducto(user.tenantId as string, dto);
   }
 
   @Post('aplicaciones')
-  @Roles(RolUsuario.ADMIN_NEGOCIO, RolUsuario.MAYORDOMO, RolUsuario.OPERARIO)
+  @Roles(...ROLES_REGISTRO)
   crearAplicacion(@CurrentUser() user: JwtPayload, @Body() dto: CrearAplicacionDto) {
     return this.sanidadService.crearAplicacion(user.tenantId as string, dto, user.sub);
   }
