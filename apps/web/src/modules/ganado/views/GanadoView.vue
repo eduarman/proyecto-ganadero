@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { isAxiosError } from 'axios';
 import { useBreakpoint } from '../../../shared/composables/useBreakpoint';
 import AppIcon from '../../../shared/components/AppIcon.vue';
+import Pill from '../../../shared/components/Pill.vue';
 import {
   ganadoApi,
   type Animal,
@@ -15,7 +16,12 @@ import {
 import { potrerosApi, type Potrero } from '../../potreros/services/potreros.api';
 import { reproduccionApi, type Servicio } from '../../reproduccion/services/reproduccion.api';
 import { produccionApi, type RegistroGdp, type RegistroLeche } from '../../produccion/services/produccion.api';
-import { sanidadApi, type AplicacionSanitaria } from '../../sanidad/services/sanidad.api';
+import {
+  sanidadApi,
+  type AplicacionSanitaria,
+  type Cuarentena,
+  type DiagnosticoSanitario,
+} from '../../sanidad/services/sanidad.api';
 
 const { isMobile } = useBreakpoint();
 
@@ -102,10 +108,12 @@ function formatFecha(iso: string | null) {
   return new Date(iso).toLocaleDateString('es-ES');
 }
 
+const animalesEnCuarentena = ref<Set<string>>(new Set());
+
 async function cargar() {
   loading.value = true;
   try {
-    const [resp, potrerosResp] = await Promise.all([
+    const [resp, potrerosResp, cuarentenasResp] = await Promise.all([
       ganadoApi.listar({
         page: page.value,
         limit,
@@ -117,10 +125,12 @@ async function cargar() {
         edadMaxMeses: filtros.value.edadMaxAnios ? Number(filtros.value.edadMaxAnios) * 12 : undefined,
       }),
       potrerosApi.listar(),
+      sanidadApi.listarCuarentenas({ activas: true }),
     ]);
     animales.value = resp.data;
     total.value = resp.total;
     potreros.value = potrerosResp.filter((p) => p.estado === 'ACTIVO');
+    animalesEnCuarentena.value = new Set(cuarentenasResp.map((c) => c.animalId));
     if (!animales.value.some((a) => a.id === activeId.value)) {
       activeId.value = animales.value[0]?.id ?? null;
     }
@@ -318,6 +328,8 @@ const historialServicios = ref<Servicio[]>([]);
 const historialLeche = ref<RegistroLeche[]>([]);
 const historialPeso = ref<RegistroGdp[]>([]);
 const historialSanidad = ref<AplicacionSanitaria[]>([]);
+const historialDiagnosticos = ref<DiagnosticoSanitario[]>([]);
+const historialCuarentenas = ref<Cuarentena[]>([]);
 const historialMovimientos = ref<AnimalMovimiento[]>([]);
 const tabsCargados = ref(new Set<string>());
 
@@ -343,8 +355,16 @@ async function abrirTab(tab: FichaTab) {
       ]);
       historialLeche.value = leche;
       historialPeso.value = peso;
-    } else if (tab === 'sanidad') historialSanidad.value = await sanidadApi.historialAnimal(animalId);
-    else if (tab === 'movimientos') historialMovimientos.value = await ganadoApi.movimientosDeAnimal(animalId);
+    } else if (tab === 'sanidad') {
+      const [aplicaciones, diagnosticos, cuarentenas] = await Promise.all([
+        sanidadApi.historialAnimal(animalId),
+        sanidadApi.historialDiagnosticos(animalId),
+        sanidadApi.listarCuarentenas({ animalId }),
+      ]);
+      historialSanidad.value = aplicaciones;
+      historialDiagnosticos.value = diagnosticos;
+      historialCuarentenas.value = cuarentenas;
+    } else if (tab === 'movimientos') historialMovimientos.value = await ganadoApi.movimientosDeAnimal(animalId);
     tabsCargados.value.add(clave);
   } finally {
     cargandoTab.value = false;
@@ -724,7 +744,12 @@ async function subirImportacion() {
       <div v-for="c in animales" :key="c.id" class="ganado-view__acc-item">
         <button type="button" class="ganado-view__acc-head" @click="toggleAccordion(c.id)">
           <div>
-            <div class="ganado-view__acc-name">{{ c.identificador }}</div>
+            <div class="ganado-view__acc-name">
+              {{ c.identificador }}
+              <Pill v-if="animalesEnCuarentena.has(c.id)" bg="var(--color-warn-bg)" color="var(--color-warn)">
+                En cuarentena
+              </Pill>
+            </div>
             <div class="ganado-view__acc-meta">{{ c.raza ?? 'Raza sin registrar' }}</div>
           </div>
           <span
@@ -815,7 +840,12 @@ async function subirImportacion() {
               @click.stop="toggleSeleccion(c.id)"
             />
             <div>
-              <div class="ganado-view__acc-name">{{ c.identificador }}</div>
+              <div class="ganado-view__acc-name">
+                {{ c.identificador }}
+                <Pill v-if="animalesEnCuarentena.has(c.id)" bg="var(--color-warn-bg)" color="var(--color-warn)">
+                  En cuarentena
+                </Pill>
+              </div>
               <div class="ganado-view__acc-meta">{{ c.raza ?? 'Raza sin registrar' }}</div>
             </div>
             <span class="ganado-view__status" :style="estiloEstado(c.estado)">
@@ -850,6 +880,9 @@ async function subirImportacion() {
               <span class="ganado-view__status" :style="estiloEstado(selected.estado)">
                 {{ ESTADO_LABELS[selected.estado] }}
               </span>
+              <Pill v-if="animalesEnCuarentena.has(selected.id)" bg="var(--color-warn-bg)" color="var(--color-warn)">
+                En cuarentena
+              </Pill>
             </div>
             <div class="ganado-view__detail-line">
               {{ selected.raza ?? 'Raza sin registrar' }} · Nacida {{ formatFecha(selected.fechaNacimiento) }}
@@ -976,6 +1009,26 @@ async function subirImportacion() {
                 <span class="ganado-view__muted">{{ formatFecha(a.fecha) }}</span>
                 <span>{{ a.producto.nombre }}</span>
                 <span>{{ a.dosisAplicada ?? '—' }}</span>
+              </div>
+
+              <div class="ganado-view__hist-subheading">Diagnósticos</div>
+              <div v-if="historialDiagnosticos.length === 0" class="ganado-view__history-empty">
+                Sin diagnósticos registrados.
+              </div>
+              <div v-for="d in historialDiagnosticos" :key="d.id" class="ganado-view__hist-row">
+                <span class="ganado-view__muted">{{ formatFecha(d.fecha) }}</span>
+                <span>{{ d.condicion }}</span>
+                <span>{{ formatEnum(d.gravedad) }}</span>
+              </div>
+
+              <div class="ganado-view__hist-subheading">Cuarentenas</div>
+              <div v-if="historialCuarentenas.length === 0" class="ganado-view__history-empty">
+                Sin cuarentenas registradas.
+              </div>
+              <div v-for="c in historialCuarentenas" :key="c.id" class="ganado-view__hist-row">
+                <span class="ganado-view__muted">{{ formatFecha(c.fechaInicio) }}</span>
+                <span>{{ c.motivo }}</span>
+                <span>{{ c.activa ? 'Activa' : 'Finalizada' }}</span>
               </div>
             </div>
 

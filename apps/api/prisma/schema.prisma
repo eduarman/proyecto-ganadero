@@ -74,6 +74,9 @@ model Negocio {
   potreros               Potrero[]
   productosSanitarios    ProductoSanitario[]
   aplicacionesSanitarias AplicacionSanitaria[]
+  protocolosSanitarios   ProtocoloSanitario[]
+  diagnosticosSanitarios DiagnosticoSanitario[]
+  cuarentenas            Cuarentena[]
   registrosLeche         RegistroLeche[]
   registrosLecheTotal    RegistroLecheTotal[]
   registrosPeso          RegistroPeso[]
@@ -265,6 +268,8 @@ model Animal {
   bajas                  AnimalBaja[]
   movimientos            AnimalMovimiento[]
   aplicacionesSanitarias AplicacionSanitaria[]
+  diagnosticosSanitarios DiagnosticoSanitario[]
+  cuarentenas            Cuarentena[]
   registrosLeche         RegistroLeche[]
   registrosPeso          RegistroPeso[]
   serviciosComoHembra    Servicio[]            @relation("ServicioHembra")
@@ -374,6 +379,7 @@ model ProductoSanitario {
 
   negocio      Negocio               @relation(fields: [tenantId], references: [id])
   aplicaciones AplicacionSanitaria[]
+  protocolos   ProtocoloSanitario[]
 
   @@unique([tenantId, nombre])
   @@map("productos_sanitarios")
@@ -395,10 +401,79 @@ model AplicacionSanitaria {
   animal      Animal            @relation(fields: [animalId], references: [id])
   producto    ProductoSanitario @relation(fields: [productoId], references: [id])
   responsable Usuario           @relation(fields: [responsableId], references: [id])
+  diagnosticosTratamiento DiagnosticoSanitario[]
 
   @@index([tenantId, animalId])
   @@index([tenantId, proximaFechaEsperada])
   @@map("aplicaciones_sanitarias")
+}
+
+enum EstadoProtocoloSanitario {
+  ACTIVO
+  INACTIVO
+}
+
+model ProtocoloSanitario {
+  id             String                   @id @default(uuid())
+  tenantId       String                   @map("tenant_id")
+  nombre         String
+  productoId     String                   @map("producto_id")
+  edadInicioDias Int?                     @map("edad_inicio_dias")
+  frecuenciaDias Int?                     @map("frecuencia_dias")
+  especie        Especie?
+  sexo           SexoAnimal?
+  categoria      String?
+  estado         EstadoProtocoloSanitario @default(ACTIVO)
+  createdAt      DateTime                 @default(now()) @map("created_at")
+
+  negocio  Negocio           @relation(fields: [tenantId], references: [id])
+  producto ProductoSanitario @relation(fields: [productoId], references: [id])
+
+  @@index([tenantId, estado])
+  @@map("protocolos_sanitarios")
+}
+
+enum GravedadDiagnostico {
+  LEVE
+  MODERADA
+  GRAVE
+}
+
+model DiagnosticoSanitario {
+  id                      String              @id @default(uuid())
+  tenantId                String              @map("tenant_id")
+  animalId                String              @map("animal_id")
+  fecha                   DateTime
+  condicion               String
+  gravedad                GravedadDiagnostico
+  tratamientoAplicacionId String?             @map("tratamiento_aplicacion_id")
+  createdAt               DateTime            @default(now()) @map("created_at")
+
+  negocio     Negocio              @relation(fields: [tenantId], references: [id])
+  animal      Animal               @relation(fields: [animalId], references: [id])
+  tratamiento AplicacionSanitaria? @relation(fields: [tratamientoAplicacionId], references: [id])
+
+  @@index([tenantId, animalId])
+  @@map("diagnosticos_sanitarios")
+}
+
+model Cuarentena {
+  id               String    @id @default(uuid())
+  tenantId         String    @map("tenant_id")
+  animalId         String    @map("animal_id")
+  fechaInicio      DateTime  @map("fecha_inicio")
+  fechaFinEstimada DateTime? @map("fecha_fin_estimada")
+  fechaFinReal     DateTime? @map("fecha_fin_real")
+  motivo           String
+  activa           Boolean   @default(true)
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  negocio Negocio @relation(fields: [tenantId], references: [id])
+  animal  Animal  @relation(fields: [animalId], references: [id])
+
+  @@index([tenantId, animalId])
+  @@index([tenantId, activa])
+  @@map("cuarentenas")
 }
 
 // ---------------------------------------------------------------------------
