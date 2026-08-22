@@ -16,8 +16,11 @@ export class StorageService {
     const url = this.config.supabaseUrl;
     const key = this.config.supabaseServiceRoleKey;
     if (!url || !key) {
+      // DEBUG TEMPORAL: diagnosticar por qué Railway no está exponiendo estas
+      // env vars al proceso, sin filtrar el valor real. Revertir apenas se
+      // identifique la causa.
       throw new InternalServerErrorException(
-        'Storage no configurado: faltan SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY.',
+        `Storage no configurado (debug): url_presente=${!!url} url_len=${url?.length ?? 0} key_presente=${!!key} key_len=${key?.length ?? 0} bucket=${this.config.supabaseReportesBucket}`,
       );
     }
     this.client = createClient(url, key);
