@@ -25,6 +25,11 @@ export class PotrerosController {
     return this.potrerosService.obtener(user.tenantId as string, id);
   }
 
+  @Get(':id/movimientos')
+  movimientos(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.potrerosService.movimientos(user.tenantId as string, id);
+  }
+
   @Post()
   @Roles(RolUsuario.ADMIN_NEGOCIO, RolUsuario.MAYORDOMO)
   crear(@CurrentUser() user: JwtPayload, @Body() dto: CrearPotreroDto) {

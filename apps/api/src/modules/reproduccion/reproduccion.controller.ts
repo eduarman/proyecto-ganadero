@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { RolUsuario } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -37,8 +37,8 @@ export class ReproduccionController {
   }
 
   @Get('servicios')
-  listarServicios(@CurrentUser() user: JwtPayload) {
-    return this.reproduccionService.listarServicios(user.tenantId as string);
+  listarServicios(@CurrentUser() user: JwtPayload, @Query('animalId') animalId?: string) {
+    return this.reproduccionService.listarServicios(user.tenantId as string, animalId);
   }
 
   @Get('servicios/pendientes')

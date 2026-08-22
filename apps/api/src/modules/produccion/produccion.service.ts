@@ -46,9 +46,9 @@ export class ProduccionService {
     });
   }
 
-  listar(tenantId: string) {
+  listar(tenantId: string, animalId?: string) {
     return this.prisma.registroLeche.findMany({
-      where: { tenantId },
+      where: { tenantId, ...(animalId && { animalId }) },
       include: { animal: true },
       orderBy: { fecha: 'desc' },
       take: 50,

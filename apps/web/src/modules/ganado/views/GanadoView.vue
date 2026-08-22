@@ -3,8 +3,19 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { isAxiosError } from 'axios';
 import { useBreakpoint } from '../../../shared/composables/useBreakpoint';
 import AppIcon from '../../../shared/components/AppIcon.vue';
-import { ganadoApi, type Animal, type EstadoAnimal, type MotivoBaja, type SexoAnimal } from '../services/ganado.api';
+import {
+  ganadoApi,
+  type Animal,
+  type AnimalMovimiento,
+  type EstadoAnimal,
+  type MotivoBaja,
+  type ResultadoImportacion,
+  type SexoAnimal,
+} from '../services/ganado.api';
 import { potrerosApi, type Potrero } from '../../potreros/services/potreros.api';
+import { reproduccionApi, type Servicio } from '../../reproduccion/services/reproduccion.api';
+import { produccionApi, type RegistroLeche } from '../../produccion/services/produccion.api';
+import { sanidadApi, type AplicacionSanitaria } from '../../sanidad/services/sanidad.api';
 
 const { isMobile } = useBreakpoint();
 
@@ -17,6 +28,15 @@ const saving = ref(false);
 const errorMsg = ref('');
 const animales = ref<Animal[]>([]);
 const potreros = ref<Potrero[]>([]);
+// Catálogo liviano de todo el hato (no paginado) para los selectores de
+// madre/padre — `animales` solo trae la página actual.
+const catalogoAnimales = ref<Animal[]>([]);
+const hembrasDisponibles = computed(() =>
+  catalogoAnimales.value.filter((a) => a.sexo === 'HEMBRA' && a.id !== editandoId.value),
+);
+const machosDisponibles = computed(() =>
+  catalogoAnimales.value.filter((a) => a.sexo === 'MACHO' && a.id !== editandoId.value),
+);
 
 const ESTADO_OPCIONES: EstadoAnimal[] = ['ACTIVO', 'VENDIDO', 'MUERTO', 'EN_TRANSITO', 'INACTIVO'];
 const showFiltros = ref(false);
@@ -36,6 +56,24 @@ function nombrePotrero(id: string | null): string {
   if (!id) return 'Sin asignar';
   return potreros.value.find((p) => p.id === id)?.nombre ?? 'Sin asignar';
 }
+
+function nombreProgenitor(id: string | null, refExterna: string | null): string {
+  if (id) return catalogoAnimales.value.find((a) => a.id === id)?.identificador ?? '—';
+  return refExterna ?? '—';
+}
+
+function formatEnum(valor: string): string {
+  const texto = valor.replaceAll('_', ' ').toLowerCase();
+  return texto.charAt(0).toUpperCase() + texto.slice(1);
+}
+
+const FICHA_TABS: { key: FichaTab; label: string }[] = [
+  { key: 'general', label: 'General' },
+  { key: 'reproduccion', label: 'Reproducción' },
+  { key: 'produccion', label: 'Producción' },
+  { key: 'sanidad', label: 'Sanidad' },
+  { key: 'movimientos', label: 'Movimientos' },
+];
 
 const MOTIVO_BAJA_LABELS: Record<MotivoBaja, string> = {
   VENTA: 'Venta',
@@ -91,7 +129,15 @@ async function cargar() {
   }
 }
 
-onMounted(cargar);
+async function cargarCatalogo() {
+  const resp = await ganadoApi.listar({ limit: 200 });
+  catalogoAnimales.value = resp.data;
+}
+
+onMounted(() => {
+  cargar();
+  cargarCatalogo();
+});
 
 let debounceHandle: ReturnType<typeof setTimeout> | undefined;
 watch(search, () => {
@@ -138,6 +184,8 @@ const form = ref({
   sexo: 'HEMBRA' as SexoAnimal,
   raza: '',
   fechaNacimiento: '',
+  madreId: '',
+  padreId: '',
   padreRefExterna: '',
   madreRefExterna: '',
   potreroActualId: '',
@@ -149,6 +197,8 @@ function resetForm() {
     sexo: 'HEMBRA',
     raza: '',
     fechaNacimiento: '',
+    madreId: '',
+    padreId: '',
     padreRefExterna: '',
     madreRefExterna: '',
     potreroActualId: '',
@@ -169,6 +219,8 @@ function abrirEdicion(animal: Animal) {
     sexo: animal.sexo,
     raza: animal.raza ?? '',
     fechaNacimiento: animal.fechaNacimiento ? animal.fechaNacimiento.slice(0, 10) : '',
+    madreId: animal.madreId ?? '',
+    padreId: animal.padreId ?? '',
     padreRefExterna: animal.padreRefExterna ?? '',
     madreRefExterna: animal.madreRefExterna ?? '',
     potreroActualId: animal.potreroActualId ?? '',
@@ -188,8 +240,10 @@ async function guardar() {
       sexo: form.value.sexo,
       raza: form.value.raza || undefined,
       fechaNacimiento: form.value.fechaNacimiento || undefined,
-      padreRefExterna: form.value.padreRefExterna || undefined,
-      madreRefExterna: form.value.madreRefExterna || undefined,
+      madreId: form.value.madreId || undefined,
+      padreId: form.value.padreId || undefined,
+      padreRefExterna: form.value.padreId ? undefined : form.value.padreRefExterna || undefined,
+      madreRefExterna: form.value.madreId ? undefined : form.value.madreRefExterna || undefined,
       potreroActualId: form.value.potreroActualId || undefined,
     };
     const guardado = editandoId.value
@@ -198,7 +252,7 @@ async function guardar() {
     showForm.value = false;
     editandoId.value = null;
     resetForm();
-    await cargar();
+    await Promise.all([cargar(), cargarCatalogo()]);
     activeId.value = guardado.id;
   } catch (error) {
     errorMsg.value = isAxiosError(error)
@@ -254,6 +308,134 @@ async function confirmarBaja(confirmarConEventosPendientes = false) {
     dandoBaja.value = false;
   }
 }
+
+// --- Ficha consolidada: tabs de historial (US-3) ------------------------
+
+type FichaTab = 'general' | 'reproduccion' | 'produccion' | 'sanidad' | 'movimientos';
+const fichaTab = ref<FichaTab>('general');
+const cargandoTab = ref(false);
+const historialServicios = ref<Servicio[]>([]);
+const historialLeche = ref<RegistroLeche[]>([]);
+const historialSanidad = ref<AplicacionSanitaria[]>([]);
+const historialMovimientos = ref<AnimalMovimiento[]>([]);
+const tabsCargados = ref(new Set<string>());
+
+watch(activeId, () => {
+  fichaTab.value = 'general';
+  tabsCargados.value = new Set();
+});
+
+async function abrirTab(tab: FichaTab) {
+  fichaTab.value = tab;
+  if (tab === 'general' || !selected.value) return;
+  const clave = `${selected.value.id}:${tab}`;
+  if (tabsCargados.value.has(clave)) return;
+
+  cargandoTab.value = true;
+  try {
+    const animalId = selected.value.id;
+    if (tab === 'reproduccion') historialServicios.value = await reproduccionApi.listarServicios(animalId);
+    else if (tab === 'produccion') historialLeche.value = await produccionApi.listar(animalId);
+    else if (tab === 'sanidad') historialSanidad.value = await sanidadApi.historialAnimal(animalId);
+    else if (tab === 'movimientos') historialMovimientos.value = await ganadoApi.movimientosDeAnimal(animalId);
+    tabsCargados.value.add(clave);
+  } finally {
+    cargandoTab.value = false;
+  }
+}
+
+function irAFicha(animalId: string) {
+  activeId.value = animalId;
+}
+
+// --- Mover animales entre potreros (US-5) --------------------------------
+
+const modoSeleccion = ref(false);
+const seleccionados = ref(new Set<string>());
+const mostrarMover = ref(false);
+const animalesAMover = ref<string[]>([]);
+const moverForm = ref({ potreroDestinoId: '', fecha: new Date().toISOString().slice(0, 10) });
+const moviendoAnimales = ref(false);
+const moverError = ref('');
+
+function toggleSeleccion(id: string) {
+  if (seleccionados.value.has(id)) seleccionados.value.delete(id);
+  else seleccionados.value.add(id);
+  // Forzar reactividad: Set mutado in-place no dispara refs automáticamente.
+  seleccionados.value = new Set(seleccionados.value);
+}
+
+function abrirMover(ids: string[]) {
+  if (ids.length === 0) return;
+  animalesAMover.value = ids;
+  moverForm.value = { potreroDestinoId: '', fecha: new Date().toISOString().slice(0, 10) };
+  moverError.value = '';
+  mostrarMover.value = true;
+}
+
+async function confirmarMover() {
+  moverError.value = '';
+  moviendoAnimales.value = true;
+  try {
+    await ganadoApi.moverAnimales({
+      animalIds: animalesAMover.value,
+      potreroDestinoId: moverForm.value.potreroDestinoId,
+      fecha: moverForm.value.fecha,
+    });
+    mostrarMover.value = false;
+    modoSeleccion.value = false;
+    seleccionados.value = new Set();
+    tabsCargados.value = new Set();
+    await cargar();
+  } catch (error) {
+    moverError.value = isAxiosError(error)
+      ? ((error.response?.data as { message?: string } | undefined)?.message ?? 'No se pudo mover el/los animal(es).')
+      : 'No se pudo mover el/los animal(es).';
+  } finally {
+    moviendoAnimales.value = false;
+  }
+}
+
+// --- Importación masiva CSV (US-6) ---------------------------------------
+
+const mostrarImportar = ref(false);
+const archivoImportar = ref<File | null>(null);
+const importando = ref(false);
+const importarError = ref('');
+const resultadoImportacion = ref<ResultadoImportacion | null>(null);
+
+function onArchivoSeleccionado(event: Event) {
+  const input = event.target as HTMLInputElement;
+  archivoImportar.value = input.files?.[0] ?? null;
+}
+
+async function descargarPlantilla() {
+  const blob = await ganadoApi.descargarPlantillaImportacion();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'plantilla-ganado.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+async function subirImportacion() {
+  if (!archivoImportar.value) return;
+  importarError.value = '';
+  importando.value = true;
+  resultadoImportacion.value = null;
+  try {
+    resultadoImportacion.value = await ganadoApi.importar(archivoImportar.value);
+    archivoImportar.value = null;
+    await Promise.all([cargar(), cargarCatalogo()]);
+  } catch (error) {
+    importarError.value = isAxiosError(error)
+      ? ((error.response?.data as { message?: string } | undefined)?.message ?? 'No se pudo importar el archivo.')
+      : 'No se pudo importar el archivo.';
+  } finally {
+    importando.value = false;
+  }
+}
 </script>
 
 <template>
@@ -274,12 +456,88 @@ async function confirmarBaja(confirmarConEventosPendientes = false) {
         </button>
         <button
           type="button"
+          class="ganado-view__btn-ghost"
+          @click="modoSeleccion = !modoSeleccion; seleccionados = new Set()"
+        >
+          {{ modoSeleccion ? 'Cancelar selección' : 'Seleccionar varios' }}
+        </button>
+        <button type="button" class="ganado-view__btn-ghost" @click="mostrarImportar = !mostrarImportar">
+          {{ mostrarImportar ? 'Cerrar importación' : 'Importar CSV' }}
+        </button>
+        <button
+          type="button"
           class="ganado-view__new-btn"
           @click="showForm ? cancelarForm() : (showForm = true)"
         >
           {{ showForm ? 'Cerrar formulario' : 'Registrar nuevo bovino' }}
         </button>
       </template>
+    </div>
+
+    <div v-if="modoSeleccion && seleccionados.size > 0" class="ganado-view__selection-bar">
+      <span>{{ seleccionados.size }} animal(es) seleccionado(s)</span>
+      <button type="button" class="ganado-view__btn-primary" @click="abrirMover(Array.from(seleccionados))">
+        Mover a potrero
+      </button>
+    </div>
+
+    <div v-if="mostrarImportar" class="ganado-view__form">
+      <div class="ganado-view__form-title">Importar animales desde CSV</div>
+      <div v-if="importarError" class="ganado-view__form-error">{{ importarError }}</div>
+      <div v-if="resultadoImportacion" class="ganado-view__import-result">
+        <strong>{{ resultadoImportacion.creados }}</strong> animal(es) creado(s).
+        <template v-if="resultadoImportacion.errores.length > 0">
+          {{ resultadoImportacion.errores.length }} fila(s) rechazada(s):
+          <ul>
+            <li v-for="(e, i) in resultadoImportacion.errores" :key="i">Fila {{ e.fila }}: {{ e.motivo }}</li>
+          </ul>
+        </template>
+      </div>
+      <button type="button" class="ganado-view__link-btn" @click="descargarPlantilla">
+        Descargar plantilla CSV
+      </button>
+      <input type="file" accept=".csv" @change="onArchivoSeleccionado" />
+      <div class="ganado-view__form-actions">
+        <button
+          type="button"
+          class="ganado-view__btn-primary"
+          :disabled="importando || !archivoImportar"
+          @click="subirImportacion"
+        >
+          {{ importando ? 'Importando…' : 'Importar' }}
+        </button>
+      </div>
+    </div>
+
+    <div v-if="mostrarMover" class="ganado-view__form">
+      <div class="ganado-view__form-title">
+        Mover {{ animalesAMover.length > 1 ? `${animalesAMover.length} animales` : 'animal' }} a otro potrero
+      </div>
+      <div v-if="moverError" class="ganado-view__form-error">{{ moverError }}</div>
+      <div class="ganado-view__form-grid">
+        <div class="ganado-view__field">
+          <label>Potrero destino</label>
+          <select v-model="moverForm.potreroDestinoId">
+            <option value="" disabled>Seleccioná un potrero</option>
+            <option v-for="p in potreros" :key="p.id" :value="p.id">{{ p.nombre }}</option>
+          </select>
+        </div>
+        <div class="ganado-view__field">
+          <label>Fecha</label>
+          <input v-model="moverForm.fecha" type="date" />
+        </div>
+      </div>
+      <div class="ganado-view__form-actions">
+        <button type="button" class="ganado-view__btn-ghost" @click="mostrarMover = false">Cancelar</button>
+        <button
+          type="button"
+          class="ganado-view__btn-primary"
+          :disabled="moviendoAnimales || !moverForm.potreroDestinoId"
+          @click="confirmarMover"
+        >
+          {{ moviendoAnimales ? 'Moviendo…' : 'Confirmar movimiento' }}
+        </button>
+      </div>
     </div>
 
     <div v-if="showFiltros" class="ganado-view__form">
@@ -346,12 +604,20 @@ async function confirmarBaja(confirmarConEventosPendientes = false) {
           <input v-model="form.fechaNacimiento" type="date" />
         </div>
         <div class="ganado-view__field">
-          <label>Padre</label>
-          <input v-model="form.padreRefExterna" placeholder="Toro Max" />
+          <label>Padre (si está en el sistema)</label>
+          <select v-model="form.padreId">
+            <option value="">No está en el sistema</option>
+            <option v-for="m in machosDisponibles" :key="m.id" :value="m.id">{{ m.identificador }}</option>
+          </select>
+          <input v-if="!form.padreId" v-model="form.padreRefExterna" placeholder="Toro Max (referencia externa)" />
         </div>
         <div class="ganado-view__field">
-          <label>Madre</label>
-          <input v-model="form.madreRefExterna" placeholder="Bonita" />
+          <label>Madre (si está en el sistema)</label>
+          <select v-model="form.madreId">
+            <option value="">No está en el sistema</option>
+            <option v-for="h in hembrasDisponibles" :key="h.id" :value="h.id">{{ h.identificador }}</option>
+          </select>
+          <input v-if="!form.madreId" v-model="form.madreRefExterna" placeholder="Bonita (referencia externa)" />
         </div>
         <div class="ganado-view__field">
           <label>Potrero actual</label>
@@ -456,16 +722,24 @@ async function confirmarBaja(confirmarConEventosPendientes = false) {
           <div class="ganado-view__acc-stats">
             <div class="ganado-view__stat">
               <div class="ganado-view__stat-label">Padre</div>
-              <div class="ganado-view__stat-value">{{ c.padreRefExterna ?? '—' }}</div>
+              <div class="ganado-view__stat-value">{{ nombreProgenitor(c.padreId, c.padreRefExterna) }}</div>
             </div>
             <div class="ganado-view__stat">
               <div class="ganado-view__stat-label">Madre</div>
-              <div class="ganado-view__stat-value">{{ c.madreRefExterna ?? '—' }}</div>
+              <div class="ganado-view__stat-value">{{ nombreProgenitor(c.madreId, c.madreRefExterna) }}</div>
             </div>
           </div>
           <div class="ganado-view__detail-actions">
             <button type="button" class="ganado-view__btn-ghost" @click="abrirEdicion(c)">
               Editar
+            </button>
+            <button
+              v-if="c.estado === 'ACTIVO'"
+              type="button"
+              class="ganado-view__btn-ghost"
+              @click="abrirMover([c.id])"
+            >
+              Mover
             </button>
             <button
               v-if="c.estado === 'ACTIVO'"
@@ -505,8 +779,14 @@ async function confirmarBaja(confirmarConEventosPendientes = false) {
             type="button"
             class="ganado-view__list-item"
             :class="{ 'ganado-view__list-item--active': c.id === activeId }"
-            @click="selectCow(c.id)"
+            @click="modoSeleccion ? toggleSeleccion(c.id) : selectCow(c.id)"
           >
+            <input
+              v-if="modoSeleccion"
+              type="checkbox"
+              :checked="seleccionados.has(c.id)"
+              @click.stop="toggleSeleccion(c.id)"
+            />
             <div>
               <div class="ganado-view__acc-name">{{ c.identificador }}</div>
               <div class="ganado-view__acc-meta">{{ c.raza ?? 'Raza sin registrar' }}</div>
@@ -558,6 +838,14 @@ async function confirmarBaja(confirmarConEventosPendientes = false) {
                 v-if="selected.estado === 'ACTIVO'"
                 type="button"
                 class="ganado-view__btn-ghost"
+                @click="abrirMover([selected.id])"
+              >
+                Mover de potrero
+              </button>
+              <button
+                v-if="selected.estado === 'ACTIVO'"
+                type="button"
+                class="ganado-view__btn-ghost"
                 @click="abrirBaja"
               >
                 Dar de baja
@@ -575,20 +863,96 @@ async function confirmarBaja(confirmarConEventosPendientes = false) {
           </div>
           <div class="ganado-view__stat">
             <div class="ganado-view__stat-label">Padre</div>
-            <div class="ganado-view__stat-value">{{ selected.padreRefExterna ?? '—' }}</div>
+            <button
+              v-if="selected.padreId"
+              type="button"
+              class="ganado-view__stat-link"
+              @click="irAFicha(selected.padreId)"
+            >
+              {{ nombreProgenitor(selected.padreId, selected.padreRefExterna) }}
+            </button>
+            <div v-else class="ganado-view__stat-value">{{ selected.padreRefExterna ?? '—' }}</div>
           </div>
           <div class="ganado-view__stat">
             <div class="ganado-view__stat-label">Madre</div>
-            <div class="ganado-view__stat-value">{{ selected.madreRefExterna ?? '—' }}</div>
+            <button
+              v-if="selected.madreId"
+              type="button"
+              class="ganado-view__stat-link"
+              @click="irAFicha(selected.madreId)"
+            >
+              {{ nombreProgenitor(selected.madreId, selected.madreRefExterna) }}
+            </button>
+            <div v-else class="ganado-view__stat-value">{{ selected.madreRefExterna ?? '—' }}</div>
           </div>
         </div>
 
         <div>
-          <div class="ganado-view__history-title">Historial reciente</div>
-          <div class="ganado-view__history-empty">
-            El historial de eventos (producción, sanidad, reproducción) va a estar disponible acá
-            cuando se conecten esos módulos.
+          <div class="ganado-view__ficha-tabs">
+            <button
+              v-for="t in FICHA_TABS"
+              :key="t.key"
+              type="button"
+              class="ganado-view__ficha-tab"
+              :class="{ 'ganado-view__ficha-tab--active': fichaTab === t.key }"
+              @click="abrirTab(t.key)"
+            >
+              {{ t.label }}
+            </button>
           </div>
+
+          <div v-if="fichaTab === 'general'" class="ganado-view__history-empty">
+            Elegí una pestaña para ver el historial reproductivo, de producción, sanitario o de movimientos de
+            {{ selected.identificador }}.
+          </div>
+
+          <div v-else-if="cargandoTab" class="ganado-view__muted">Cargando…</div>
+
+          <template v-else>
+            <div v-if="fichaTab === 'reproduccion'">
+              <div v-if="historialServicios.length === 0" class="ganado-view__history-empty">
+                Sin eventos reproductivos registrados.
+              </div>
+              <div v-for="s in historialServicios" :key="s.id" class="ganado-view__hist-row">
+                <span class="ganado-view__muted">{{ formatFecha(s.fecha) }}</span>
+                <span>{{ formatEnum(s.tipo) }}</span>
+                <span>{{ formatEnum(s.estado) }}</span>
+              </div>
+            </div>
+
+            <div v-else-if="fichaTab === 'produccion'">
+              <div v-if="historialLeche.length === 0" class="ganado-view__history-empty">
+                Sin registros de producción.
+              </div>
+              <div v-for="r in historialLeche" :key="r.id" class="ganado-view__hist-row">
+                <span class="ganado-view__muted">{{ formatFecha(r.fecha) }}</span>
+                <span>{{ formatEnum(r.turno) }}</span>
+                <span>{{ r.litros }} L</span>
+              </div>
+            </div>
+
+            <div v-else-if="fichaTab === 'sanidad'">
+              <div v-if="historialSanidad.length === 0" class="ganado-view__history-empty">
+                Sin registros sanitarios.
+              </div>
+              <div v-for="a in historialSanidad" :key="a.id" class="ganado-view__hist-row">
+                <span class="ganado-view__muted">{{ formatFecha(a.fecha) }}</span>
+                <span>{{ a.producto.nombre }}</span>
+                <span>{{ a.dosisAplicada ?? '—' }}</span>
+              </div>
+            </div>
+
+            <div v-else-if="fichaTab === 'movimientos'">
+              <div v-if="historialMovimientos.length === 0" class="ganado-view__history-empty">
+                Sin movimientos entre potreros registrados.
+              </div>
+              <div v-for="m in historialMovimientos" :key="m.id" class="ganado-view__hist-row">
+                <span class="ganado-view__muted">{{ formatFecha(m.fecha) }}</span>
+                <span>{{ m.potreroOrigen?.nombre ?? 'Sin potrero' }}</span>
+                <span>→ {{ m.potreroDestino.nombre }}</span>
+              </div>
+            </div>
+          </template>
         </div>
       </div>
     </div>
@@ -1034,6 +1398,97 @@ async function confirmarBaja(confirmarConEventosPendientes = false) {
   @media (max-width: 900px) {
     &__columns {
       grid-template-columns: 1fr;
+    }
+  }
+
+  &__selection-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    background: var(--color-white);
+    border-radius: 1rem;
+    padding: 0.75rem 1rem;
+    box-shadow: var(--shadow-card);
+    font-size: 0.82rem;
+    font-weight: 700;
+  }
+
+  &__import-result {
+    background: var(--color-neutral-bg);
+    color: var(--color-primary);
+    border-radius: 12px;
+    padding: 0.65rem 0.85rem;
+    font-size: 0.8rem;
+
+    ul {
+      margin: 0.4rem 0 0;
+      padding-left: 1.2rem;
+    }
+  }
+
+  &__link-btn {
+    background: var(--color-neutral-bg);
+    border: 1.5px solid var(--color-primary);
+    border-radius: 999px;
+    color: var(--color-primary);
+    font-size: 0.72rem;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 0.4rem 0.9rem;
+    font-family: inherit;
+    align-self: flex-start;
+  }
+
+  &__stat-link {
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--color-primary);
+    font-size: 0.85rem;
+    font-weight: 700;
+    margin-top: 0.25rem;
+    cursor: pointer;
+    font-family: inherit;
+    text-decoration: underline;
+    text-align: left;
+  }
+
+  &__ficha-tabs {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.75rem;
+  }
+
+  &__ficha-tab {
+    background: var(--color-bg);
+    border: none;
+    border-radius: 999px;
+    padding: 0.4rem 0.85rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    cursor: pointer;
+    font-family: inherit;
+    color: rgba(40, 54, 24, 0.65);
+
+    &--active {
+      background: var(--color-primary);
+      color: var(--color-bg);
+    }
+  }
+
+  &__hist-row {
+    display: grid;
+    grid-template-columns: 90px 1fr 1fr;
+    gap: 0.6rem;
+    padding: 0.6rem 0.2rem;
+    border-top: 1px solid #f2efdd;
+    font-size: 0.8rem;
+    align-items: center;
+
+    &:first-of-type {
+      border-top: none;
     }
   }
 }

@@ -5,6 +5,11 @@ export type SexoAnimal = 'MACHO' | 'HEMBRA';
 export type EstadoAnimal = 'ACTIVO' | 'VENDIDO' | 'MUERTO' | 'EN_TRANSITO' | 'INACTIVO';
 export type MotivoBaja = 'VENTA' | 'MUERTE' | 'TRASLADO' | 'OTRO';
 
+export interface AnimalResumen {
+  id: string;
+  identificador: string;
+}
+
 export interface Animal {
   id: string;
   tenantId: string;
@@ -16,6 +21,8 @@ export interface Animal {
   raza: string | null;
   color: string | null;
   pesoNacimiento: string | null;
+  madreId: string | null;
+  padreId: string | null;
   madreRefExterna: string | null;
   padreRefExterna: string | null;
   fotoUrl: string | null;
@@ -23,6 +30,9 @@ export interface Animal {
   estado: EstadoAnimal;
   createdAt: string;
   updatedAt: string;
+  // Solo presentes al pedir la ficha individual (GET /ganado/:id).
+  madre?: AnimalResumen | null;
+  padre?: AnimalResumen | null;
 }
 
 export interface CrearAnimalPayload {
@@ -32,9 +42,36 @@ export interface CrearAnimalPayload {
   fechaNacimiento?: string;
   raza?: string;
   color?: string;
+  madreId?: string;
+  padreId?: string;
   madreRefExterna?: string;
   padreRefExterna?: string;
   potreroActualId?: string;
+}
+
+export interface AnimalMovimiento {
+  id: string;
+  tenantId: string;
+  animalId: string;
+  potreroOrigenId: string | null;
+  potreroDestinoId: string;
+  fecha: string;
+  usuarioId: string;
+  createdAt: string;
+  animal?: AnimalResumen;
+  potreroOrigen: { id: string; nombre: string } | null;
+  potreroDestino: { id: string; nombre: string };
+}
+
+export interface MoverAnimalesPayload {
+  animalIds: string[];
+  potreroDestinoId: string;
+  fecha: string;
+}
+
+export interface ResultadoImportacion {
+  creados: number;
+  errores: { fila: number; motivo: string }[];
 }
 
 export interface ListaAnimales {
@@ -77,5 +114,19 @@ export const ganadoApi = {
   },
   darBaja(id: string, payload: DarBajaPayload) {
     return http.post(`/ganado/${id}/baja`, payload);
+  },
+  moverAnimales(payload: MoverAnimalesPayload) {
+    return http.post<AnimalMovimiento[]>('/ganado/movimientos', payload).then((r) => r.data);
+  },
+  movimientosDeAnimal(id: string) {
+    return http.get<AnimalMovimiento[]>(`/ganado/${id}/movimientos`).then((r) => r.data);
+  },
+  descargarPlantillaImportacion() {
+    return http.get('/ganado/plantilla-importacion', { responseType: 'blob' }).then((r) => r.data as Blob);
+  },
+  importar(archivo: File) {
+    const formData = new FormData();
+    formData.append('file', archivo);
+    return http.post<ResultadoImportacion>('/ganado/importar', formData).then((r) => r.data);
   },
 };

@@ -46,8 +46,8 @@ export interface IndicadoresProduccion {
 }
 
 export const produccionApi = {
-  listar() {
-    return http.get<RegistroLeche[]>('/produccion/leche').then((r) => r.data);
+  listar(animalId?: string) {
+    return http.get<RegistroLeche[]>('/produccion/leche', { params: { animalId } }).then((r) => r.data);
   },
   registrarLeche(payload: CrearRegistroLechePayload) {
     return http.post<RegistroLeche>('/produccion/leche', payload).then((r) => r.data);

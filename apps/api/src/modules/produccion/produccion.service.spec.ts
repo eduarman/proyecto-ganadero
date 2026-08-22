@@ -124,3 +124,16 @@ describe('ProduccionService.indicadores', () => {
     expect(resultado.promedioHoy).toBe(0);
   });
 });
+
+describe('ProduccionService.listar', () => {
+  it('filtra por animalId cuando se indica (ficha consolidada de ganado)', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.registroLeche.findMany.mockResolvedValue([]);
+
+    await service.listar(TENANT_A, 'animal-1');
+
+    expect(prisma.registroLeche.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { tenantId: TENANT_A, animalId: 'animal-1' } }),
+    );
+  });
+});

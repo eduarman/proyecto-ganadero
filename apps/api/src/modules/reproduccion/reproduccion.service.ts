@@ -130,9 +130,9 @@ export class ReproduccionService {
     });
   }
 
-  listarServicios(tenantId: string) {
+  listarServicios(tenantId: string, animalId?: string) {
     return this.prisma.servicio.findMany({
-      where: { tenantId },
+      where: { tenantId, ...(animalId && { animalId }) },
       include: { animal: true, diagnosticos: true, parto: true },
       orderBy: { createdAt: 'desc' },
       take: 50,

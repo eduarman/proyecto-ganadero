@@ -84,6 +84,7 @@ model Negocio {
   planAsignaciones       PlanAsignacion[]
   suministros            Suministro[]
   reportesGenerados      ReporteGenerado[]
+  animalMovimientos      AnimalMovimiento[]
 
   @@map("negocios")
 }
@@ -111,6 +112,7 @@ model Usuario {
   registrosLecheTotal    RegistroLecheTotal[]
   suministrosRegistrados Suministro[]
   reportesGenerados      ReporteGenerado[]
+  movimientosRegistrados AnimalMovimiento[]
 
   @@map("usuarios")
 }
@@ -240,8 +242,10 @@ model Animal {
   raza            String?
   color           String?
   pesoNacimiento  Decimal?     @map("peso_nacimiento") @db.Decimal(6, 2)
-  // Padre/madre como texto libre por ahora — sin vincular a otros animales
-  // del sistema (árbol genealógico real, diferido).
+  // Vinculados si la madre/el padre está en el sistema (madreId/padreId);
+  // si no, quedan como referencia externa de texto libre.
+  madreId         String?      @map("madre_id")
+  padreId         String?      @map("padre_id")
   madreRefExterna String?      @map("madre_ref_externa")
   padreRefExterna String?      @map("padre_ref_externa")
   fotoUrl         String?      @map("foto_url")
@@ -252,7 +256,12 @@ model Animal {
 
   negocio                Negocio               @relation(fields: [tenantId], references: [id])
   potreroActual          Potrero?              @relation(fields: [potreroActualId], references: [id])
+  madre                  Animal?               @relation("AnimalMadre", fields: [madreId], references: [id])
+  padre                  Animal?               @relation("AnimalPadre", fields: [padreId], references: [id])
+  hijosComoMadre         Animal[]              @relation("AnimalMadre")
+  hijosComoPadre         Animal[]              @relation("AnimalPadre")
   bajas                  AnimalBaja[]
+  movimientos            AnimalMovimiento[]
   aplicacionesSanitarias AplicacionSanitaria[]
   registrosLeche         RegistroLeche[]
   serviciosComoHembra    Servicio[]            @relation("ServicioHembra")
@@ -263,6 +272,27 @@ model Animal {
   @@unique([tenantId, identificador])
   @@index([tenantId, estado])
   @@map("animales")
+}
+
+model AnimalMovimiento {
+  id               String   @id @default(uuid())
+  tenantId         String   @map("tenant_id")
+  animalId         String   @map("animal_id")
+  potreroOrigenId  String?  @map("potrero_origen_id")
+  potreroDestinoId String   @map("potrero_destino_id")
+  fecha            DateTime
+  usuarioId        String   @map("usuario_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  negocio        Negocio  @relation(fields: [tenantId], references: [id])
+  animal         Animal   @relation(fields: [animalId], references: [id])
+  potreroOrigen  Potrero? @relation("MovimientoOrigen", fields: [potreroOrigenId], references: [id])
+  potreroDestino Potrero  @relation("MovimientoDestino", fields: [potreroDestinoId], references: [id])
+  usuario        Usuario  @relation(fields: [usuarioId], references: [id])
+
+  @@index([tenantId, animalId])
+  @@index([tenantId, potreroDestinoId])
+  @@map("animal_movimientos")
 }
 
 model AnimalBaja {
@@ -301,10 +331,12 @@ model Potrero {
   createdAt      DateTime      @default(now()) @map("created_at")
   updatedAt      DateTime      @updatedAt @map("updated_at")
 
-  negocio          Negocio          @relation(fields: [tenantId], references: [id])
-  animales         Animal[]
-  planAsignaciones PlanAsignacion[]
-  suministros      Suministro[]
+  negocio            Negocio            @relation(fields: [tenantId], references: [id])
+  animales           Animal[]
+  planAsignaciones   PlanAsignacion[]
+  suministros        Suministro[]
+  movimientosOrigen  AnimalMovimiento[] @relation("MovimientoOrigen")
+  movimientosDestino AnimalMovimiento[] @relation("MovimientoDestino")
 
   @@unique([tenantId, nombre])
   @@map("potreros")

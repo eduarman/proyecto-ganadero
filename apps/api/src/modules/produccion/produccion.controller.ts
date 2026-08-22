@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { RolUsuario } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -16,8 +16,8 @@ export class ProduccionController {
   constructor(private readonly produccionService: ProduccionService) {}
 
   @Get('leche')
-  listar(@CurrentUser() user: JwtPayload) {
-    return this.produccionService.listar(user.tenantId as string);
+  listar(@CurrentUser() user: JwtPayload, @Query('animalId') animalId?: string) {
+    return this.produccionService.listar(user.tenantId as string, animalId);
   }
 
   @Post('leche')

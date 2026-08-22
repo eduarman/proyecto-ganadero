@@ -64,7 +64,7 @@ export const reproduccionApi = {
   pendientesDiagnostico() {
     return http.get<Servicio[]>('/reproduccion/servicios/pendientes').then((r) => r.data);
   },
-  listarServicios() {
-    return http.get<Servicio[]>('/reproduccion/servicios').then((r) => r.data);
+  listarServicios(animalId?: string) {
+    return http.get<Servicio[]>('/reproduccion/servicios', { params: { animalId } }).then((r) => r.data);
   },
 };

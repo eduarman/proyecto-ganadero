@@ -49,6 +49,14 @@ export class ActualizarAnimalDto {
   pesoNacimiento?: number;
 
   @IsOptional()
+  @IsUUID()
+  madreId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  padreId?: string;
+
+  @IsOptional()
   @IsString()
   @MaxLength(100)
   madreRefExterna?: string;

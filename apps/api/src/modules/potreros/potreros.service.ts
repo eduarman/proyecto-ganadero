@@ -96,4 +96,17 @@ export class PotrerosService {
     await this.obtener(tenantId, id);
     return this.prisma.potrero.update({ where: { id }, data: { estado: 'ACTIVO' } });
   }
+
+  async movimientos(tenantId: string, id: string) {
+    await this.obtener(tenantId, id);
+    return this.prisma.animalMovimiento.findMany({
+      where: { tenantId, OR: [{ potreroOrigenId: id }, { potreroDestinoId: id }] },
+      include: {
+        animal: { select: { id: true, identificador: true } },
+        potreroOrigen: { select: { id: true, nombre: true } },
+        potreroDestino: { select: { id: true, nombre: true } },
+      },
+      orderBy: { fecha: 'desc' },
+    });
+  }
 }

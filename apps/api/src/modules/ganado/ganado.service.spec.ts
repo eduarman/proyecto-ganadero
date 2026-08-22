@@ -1,4 +1,4 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { Especie, SexoAnimal } from '@prisma/client';
 import { GanadoService } from './ganado.service';
 
@@ -17,6 +17,13 @@ function buildDeps() {
     },
     servicio: {
       findFirst: jest.fn(),
+    },
+    potrero: {
+      findFirst: jest.fn(),
+    },
+    animalMovimiento: {
+      create: jest.fn(),
+      findMany: jest.fn(),
     },
     $transaction: jest.fn(),
   };
@@ -77,6 +84,58 @@ describe('GanadoService.crear', () => {
       expect.objectContaining({ data: expect.objectContaining({ categoria: 'Toro reproductor' }) }),
     );
   });
+
+  it('rechaza con 404 si la madre indicada no existe en el tenant', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.animal.findUnique.mockResolvedValue(null);
+    prisma.animal.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.crear(TENANT_A, {
+        identificador: '004',
+        especie: Especie.BOVINO,
+        sexo: SexoAnimal.MACHO,
+        madreId: 'madre-inexistente',
+      }),
+    ).rejects.toThrow(NotFoundException);
+    expect(prisma.animal.create).not.toHaveBeenCalled();
+  });
+
+  it('rechaza con 400 si el animal indicado como madre no es hembra', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.animal.findUnique.mockResolvedValue(null);
+    prisma.animal.findFirst.mockResolvedValue({ id: 'madre-1', sexo: 'MACHO' });
+
+    await expect(
+      service.crear(TENANT_A, {
+        identificador: '005',
+        especie: Especie.BOVINO,
+        sexo: SexoAnimal.MACHO,
+        madreId: 'madre-1',
+      }),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('vincula madre y padre cuando ambos existen en el tenant con el sexo correcto', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.animal.findUnique.mockResolvedValue(null);
+    prisma.animal.findFirst
+      .mockResolvedValueOnce({ id: 'madre-1', sexo: 'HEMBRA' })
+      .mockResolvedValueOnce({ id: 'padre-1', sexo: 'MACHO' });
+    prisma.animal.create.mockResolvedValue({ id: 'cria-1' });
+
+    await service.crear(TENANT_A, {
+      identificador: '006',
+      especie: Especie.BOVINO,
+      sexo: SexoAnimal.HEMBRA,
+      madreId: 'madre-1',
+      padreId: 'padre-1',
+    });
+
+    expect(prisma.animal.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ madreId: 'madre-1', padreId: 'padre-1' }) }),
+    );
+  });
 });
 
 describe('GanadoService.listar', () => {
@@ -125,9 +184,9 @@ describe('GanadoService.obtener', () => {
     prisma.animal.findFirst.mockResolvedValue(null);
 
     await expect(service.obtener(TENANT_A, 'algun-id')).rejects.toThrow(NotFoundException);
-    expect(prisma.animal.findFirst).toHaveBeenCalledWith({
-      where: { id: 'algun-id', tenantId: TENANT_A },
-    });
+    expect(prisma.animal.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'algun-id', tenantId: TENANT_A } }),
+    );
   });
 });
 
@@ -174,5 +233,62 @@ describe('GanadoService.darBaja', () => {
 
     expect(prisma.servicio.findFirst).not.toHaveBeenCalled();
     expect(prisma.$transaction).toHaveBeenCalled();
+  });
+});
+
+describe('GanadoService.moverAnimales', () => {
+  const dto = { animalIds: ['animal-1'], potreroDestinoId: 'potrero-2', fecha: '2026-08-22' };
+
+  it('lanza 404 si el potrero destino no existe en el tenant', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.potrero.findFirst.mockResolvedValue(null);
+
+    await expect(service.moverAnimales(TENANT_A, dto, 'usuario-1')).rejects.toThrow(NotFoundException);
+  });
+
+  it('rechaza mover animales a un potrero inactivo', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.potrero.findFirst.mockResolvedValue({ id: 'potrero-2', estado: 'INACTIVO' });
+
+    await expect(service.moverAnimales(TENANT_A, dto, 'usuario-1')).rejects.toThrow(BadRequestException);
+  });
+
+  it('lanza 404 si alguno de los animales no existe en el tenant', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.potrero.findFirst.mockResolvedValue({ id: 'potrero-2', estado: 'ACTIVO' });
+    prisma.animal.findMany.mockResolvedValue([]);
+
+    await expect(service.moverAnimales(TENANT_A, dto, 'usuario-1')).rejects.toThrow(NotFoundException);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('crea un movimiento por animal con el potrero de origen correcto y actualiza su potrero actual', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.potrero.findFirst.mockResolvedValue({ id: 'potrero-2', estado: 'ACTIVO' });
+    prisma.animal.findMany.mockResolvedValue([
+      { id: 'animal-1', potreroActualId: 'potrero-1' },
+      { id: 'animal-2', potreroActualId: null },
+    ]);
+    prisma.$transaction.mockImplementation((ops: any[]) => Promise.all(ops));
+    prisma.animalMovimiento.create.mockImplementation(({ data }: any) => Promise.resolve({ id: `mov-${data.animalId}`, ...data }));
+    prisma.animal.update.mockResolvedValue({});
+
+    const resultado = await service.moverAnimales(
+      TENANT_A,
+      { animalIds: ['animal-1', 'animal-2'], potreroDestinoId: 'potrero-2', fecha: '2026-08-22' },
+      'usuario-1',
+    );
+
+    expect(resultado).toHaveLength(2);
+    expect(prisma.animalMovimiento.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ animalId: 'animal-1', potreroOrigenId: 'potrero-1', potreroDestinoId: 'potrero-2' }) }),
+    );
+    expect(prisma.animalMovimiento.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ animalId: 'animal-2', potreroOrigenId: null }) }),
+    );
+    expect(prisma.animal.update).toHaveBeenCalledWith({
+      where: { id: 'animal-1' },
+      data: { potreroActualId: 'potrero-2' },
+    });
   });
 });

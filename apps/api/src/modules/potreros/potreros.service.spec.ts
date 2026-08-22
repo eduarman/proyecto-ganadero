@@ -13,6 +13,9 @@ function buildDeps() {
     animal: {
       count: jest.fn(),
     },
+    animalMovimiento: {
+      findMany: jest.fn(),
+    },
   };
 
   const service = new PotrerosService(prisma as any);
@@ -96,5 +99,23 @@ describe('PotrerosService.activar', () => {
       where: { id: 'p1' },
       data: { estado: 'ACTIVO' },
     });
+  });
+});
+
+describe('PotrerosService.movimientos', () => {
+  it('trae los movimientos donde el potrero es origen o destino (US-5.2)', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.potrero.findFirst.mockResolvedValue({ id: 'p1' });
+    prisma.animal.count.mockResolvedValue(0);
+    prisma.animalMovimiento.findMany.mockResolvedValue([{ id: 'mov-1' }]);
+
+    const resultado = await service.movimientos(TENANT_A, 'p1');
+
+    expect(resultado).toEqual([{ id: 'mov-1' }]);
+    expect(prisma.animalMovimiento.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { tenantId: TENANT_A, OR: [{ potreroOrigenId: 'p1' }, { potreroDestinoId: 'p1' }] },
+      }),
+    );
   });
 });

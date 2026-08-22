@@ -203,3 +203,27 @@ describe('ReproduccionService.crearParto', () => {
     );
   });
 });
+
+describe('ReproduccionService.listarServicios', () => {
+  it('filtra por animalId cuando se indica (ficha consolidada de ganado)', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.servicio.findMany.mockResolvedValue([]);
+
+    await service.listarServicios(TENANT_A, 'animal-1');
+
+    expect(prisma.servicio.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { tenantId: TENANT_A, animalId: 'animal-1' } }),
+    );
+  });
+
+  it('no filtra por animal cuando no se indica', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.servicio.findMany.mockResolvedValue([]);
+
+    await service.listarServicios(TENANT_A);
+
+    expect(prisma.servicio.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { tenantId: TENANT_A } }),
+    );
+  });
+});
