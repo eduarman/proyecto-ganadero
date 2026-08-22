@@ -26,16 +26,14 @@ export class AppConfigService {
   }
 
   get supabaseUrl(): string | undefined {
-    // DEBUG TEMPORAL: renombrado de SUPABASE_URL para descartar que Railway
-    // reserve/maneje especial ese prefijo. Revertir apenas se confirme la causa.
-    return this.config.get<string>('SB_STORAGE_URL') ?? this.config.get<string>('SUPABASE_URL');
+    return this.config.get<string>('SUPABASE_URL');
   }
 
   get supabaseServiceRoleKey(): string | undefined {
-    return this.config.get<string>('SB_STORAGE_KEY') ?? this.config.get<string>('SUPABASE_SERVICE_ROLE_KEY');
+    return this.config.get<string>('SUPABASE_SERVICE_ROLE_KEY');
   }
 
   get supabaseReportesBucket(): string {
-    return this.config.get<string>('SB_STORAGE_BUCKET') ?? this.config.get<string>('SUPABASE_REPORTES_BUCKET', 'reportes');
+    return this.config.get<string>('SUPABASE_REPORTES_BUCKET', 'reportes');
   }
 }
