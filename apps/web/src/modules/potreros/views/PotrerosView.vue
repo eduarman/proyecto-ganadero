@@ -5,6 +5,7 @@ import { useBreakpoint } from '../../../shared/composables/useBreakpoint';
 import SectionCard from '../../../shared/components/SectionCard.vue';
 import Pill from '../../../shared/components/Pill.vue';
 import { potrerosApi, type Potrero } from '../services/potreros.api';
+import type { AnimalMovimiento } from '../../ganado/services/ganado.api';
 
 const { isMobile } = useBreakpoint();
 
@@ -92,25 +93,59 @@ async function activar(potrero: Potrero) {
   }
 }
 
-function ocupacionPct(p: Potrero): number | null {
+function ocupacionRatio(p: Potrero): number | null {
   const capacidad = p.capacidadCarga ? Number(p.capacidadCarga) : null;
   if (!capacidad) return null;
-  return Math.min(100, Math.round((p.ocupacionActual / capacidad) * 100));
+  return p.ocupacionActual / capacidad;
 }
 
+function ocupacionPct(p: Potrero): number | null {
+  const ratio = ocupacionRatio(p);
+  if (ratio === null) return null;
+  return Math.min(100, Math.round(ratio * 100));
+}
+
+// Mismos umbrales que apps/api/.../ocupacion.util.ts#clasificarOcupacion, para
+// que el badge de esta vista coincida con las métricas de dashboard/reportes.
 function estadoTag(p: Potrero): { label: string; bg: string; color: string } {
   if (p.estado === 'INACTIVO') {
     return { label: 'Inactivo', bg: 'var(--color-neutral-bg)', color: 'rgba(40, 54, 24, 0.55)' };
   }
-  const pct = ocupacionPct(p);
-  if (pct !== null && pct >= 90) {
+  const ratio = ocupacionRatio(p);
+  if (ratio !== null && ratio > 1) {
     return { label: 'Sobrecargado', bg: 'var(--color-warn-bg)', color: 'var(--color-warn)' };
   }
-  return { label: 'Activo', bg: 'var(--color-neutral-bg)', color: 'var(--color-primary)' };
+  if (ratio !== null && ratio >= 0.8) {
+    return { label: 'Cerca del límite', bg: 'var(--color-warn-bg)', color: 'var(--color-accent)' };
+  }
+  return { label: 'Normal', bg: 'var(--color-neutral-bg)', color: 'var(--color-primary)' };
 }
 
 const potrerosActivos = computed(() => potreros.value.filter((p) => p.estado === 'ACTIVO'));
 const potrerosInactivos = computed(() => potreros.value.filter((p) => p.estado === 'INACTIVO'));
+
+const historialAbierto = ref<Record<string, boolean>>({});
+const historialData = ref<Record<string, AnimalMovimiento[]>>({});
+const historialLoading = ref<Record<string, boolean>>({});
+
+async function toggleHistorial(potrero: Potrero) {
+  const abierto = !historialAbierto.value[potrero.id];
+  historialAbierto.value = { ...historialAbierto.value, [potrero.id]: abierto };
+  if (abierto && !historialData.value[potrero.id]) {
+    historialLoading.value = { ...historialLoading.value, [potrero.id]: true };
+    try {
+      const movimientos = await potrerosApi.movimientos(potrero.id);
+      historialData.value = { ...historialData.value, [potrero.id]: movimientos };
+    } finally {
+      historialLoading.value = { ...historialLoading.value, [potrero.id]: false };
+    }
+  }
+}
+
+function nombreMovimiento(m: AnimalMovimiento): string {
+  const origen = m.potreroOrigen?.nombre ?? 'Ingreso';
+  return `${origen} → ${m.potreroDestino.nombre}`;
+}
 </script>
 
 <template>
@@ -178,43 +213,70 @@ const potrerosInactivos = computed(() => potreros.value.filter((p) => p.estado =
             <div class="potreros-view__fill" :style="{ width: ocupacionPct(p) + '%' }" />
           </div>
           <div v-if="!isMobile" class="potreros-view__card-meta">{{ p.areaHectareas }} ha</div>
-          <button
-            type="button"
-            class="potreros-view__inactivar-btn"
-            :disabled="inactivandoId === p.id"
-            @click="inactivar(p)"
-          >
-            {{ inactivandoId === p.id ? 'Inactivando…' : 'Inactivar' }}
-          </button>
+          <div v-if="p.diasDescanso !== null" class="potreros-view__card-meta">
+            {{ p.diasDescanso }} día(s) en descanso
+          </div>
+          <div class="potreros-view__card-actions">
+            <button
+              type="button"
+              class="potreros-view__inactivar-btn"
+              :disabled="inactivandoId === p.id"
+              @click="inactivar(p)"
+            >
+              {{ inactivandoId === p.id ? 'Inactivando…' : 'Inactivar' }}
+            </button>
+            <button type="button" class="potreros-view__historial-btn" @click="toggleHistorial(p)">
+              {{ historialAbierto[p.id] ? 'Ocultar historial' : 'Ver historial' }}
+            </button>
+          </div>
+          <div v-if="historialAbierto[p.id]" class="potreros-view__historial">
+            <div v-if="historialLoading[p.id]" class="potreros-view__muted">Cargando…</div>
+            <div v-else-if="!historialData[p.id]?.length" class="potreros-view__muted">
+              Sin movimientos registrados.
+            </div>
+            <div v-else v-for="m in historialData[p.id]" :key="m.id" class="potreros-view__historial-item">
+              <span>{{ new Date(m.fecha).toLocaleDateString() }}</span>
+              <span>{{ nombreMovimiento(m) }}</span>
+              <span v-if="m.animal">{{ m.animal.identificador }}</span>
+            </div>
+          </div>
         </div>
       </div>
 
       <div v-if="potrerosInactivos.length" class="potreros-view__section">
         <div class="potreros-view__heading">Potreros inactivos</div>
         <div v-for="p in potrerosInactivos" :key="p.id" class="potreros-view__history-card">
-          <div class="potreros-view__bold">{{ p.nombre }}</div>
-          <div class="potreros-view__history-actions">
-            <Pill :bg="estadoTag(p).bg" :color="estadoTag(p).color">{{ estadoTag(p).label }}</Pill>
-            <button
-              type="button"
-              class="potreros-view__inactivar-btn"
-              :disabled="inactivandoId === p.id"
-              @click="activar(p)"
-            >
-              {{ inactivandoId === p.id ? 'Reactivando…' : 'Reactivar' }}
-            </button>
+          <div class="potreros-view__history-card-row">
+            <div class="potreros-view__bold">{{ p.nombre }}</div>
+            <div class="potreros-view__history-actions">
+              <Pill :bg="estadoTag(p).bg" :color="estadoTag(p).color">{{ estadoTag(p).label }}</Pill>
+              <button type="button" class="potreros-view__historial-btn" @click="toggleHistorial(p)">
+                {{ historialAbierto[p.id] ? 'Ocultar historial' : 'Ver historial' }}
+              </button>
+              <button
+                type="button"
+                class="potreros-view__inactivar-btn"
+                :disabled="inactivandoId === p.id"
+                @click="activar(p)"
+              >
+                {{ inactivandoId === p.id ? 'Reactivando…' : 'Reactivar' }}
+              </button>
+            </div>
+          </div>
+          <div v-if="historialAbierto[p.id]" class="potreros-view__historial">
+            <div v-if="historialLoading[p.id]" class="potreros-view__muted">Cargando…</div>
+            <div v-else-if="!historialData[p.id]?.length" class="potreros-view__muted">
+              Sin movimientos registrados.
+            </div>
+            <div v-else v-for="m in historialData[p.id]" :key="m.id" class="potreros-view__historial-item">
+              <span>{{ new Date(m.fecha).toLocaleDateString() }}</span>
+              <span>{{ nombreMovimiento(m) }}</span>
+              <span v-if="m.animal">{{ m.animal.identificador }}</span>
+            </div>
           </div>
         </div>
       </div>
     </template>
-
-    <div class="potreros-view__section">
-      <div class="potreros-view__heading">Movimientos y rotación</div>
-      <div class="potreros-view__placeholder">
-        El registro de movimientos entre potreros y el historial de rotación van a estar
-        disponibles cuando se conecte el módulo de movimientos de ganado.
-      </div>
-    </div>
   </div>
 </template>
 
@@ -370,7 +432,14 @@ const potrerosInactivos = computed(() => potreros.value.filter((p) => p.estado =
     border-radius: 999px;
   }
 
-  &__inactivar-btn {
+  &__card-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  &__inactivar-btn,
+  &__historial-btn {
     background: transparent;
     border: 1.5px solid #efead1;
     color: var(--color-dark);
@@ -385,6 +454,30 @@ const potrerosInactivos = computed(() => potreros.value.filter((p) => p.estado =
     &:disabled {
       opacity: 0.6;
       cursor: progress;
+    }
+  }
+
+  &__historial {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    background: var(--color-bg);
+    border-radius: 0.85rem;
+    padding: 0.65rem 0.75rem;
+    max-height: 220px;
+    overflow-y: auto;
+  }
+
+  &__historial-item {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+    font-size: 0.72rem;
+    color: var(--color-dark);
+
+    span:first-child {
+      color: rgba(40, 54, 24, 0.6);
+      white-space: nowrap;
     }
   }
 
@@ -408,23 +501,22 @@ const potrerosInactivos = computed(() => potreros.value.filter((p) => p.estado =
     font-size: 0.9rem;
   }
 
-  &__placeholder {
-    font-size: 0.8rem;
-    color: rgba(40, 54, 24, 0.55);
-    background: var(--color-white);
-    border-radius: 1rem;
-    padding: 0.9rem 1rem;
-    box-shadow: var(--shadow-card);
-  }
-
   &__history-card {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
+    flex-direction: column;
+    gap: 0.65rem;
     padding: 0.85rem;
     background: var(--color-white);
     border-radius: 1rem;
     box-shadow: var(--shadow-card);
+  }
+
+  &__history-card-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.5rem;
   }
 
   &__history-actions {

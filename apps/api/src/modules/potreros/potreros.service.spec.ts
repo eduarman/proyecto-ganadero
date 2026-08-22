@@ -15,6 +15,7 @@ function buildDeps() {
     },
     animalMovimiento: {
       findMany: jest.fn(),
+      findFirst: jest.fn(),
     },
   };
 
@@ -43,10 +44,81 @@ describe('PotrerosService.listar', () => {
 
     const resultado = await service.listar(TENANT_A);
 
-    expect(resultado).toEqual([{ id: 'p1', nombre: 'Potrero 1', ocupacionActual: 3 }]);
+    expect(resultado).toEqual([{ id: 'p1', nombre: 'Potrero 1', ocupacionActual: 3, diasDescanso: null }]);
     expect(prisma.animal.count).toHaveBeenCalledWith({
       where: { potreroActualId: 'p1', estado: 'ACTIVO' },
     });
+  });
+});
+
+describe('PotrerosService.validarCapacidad', () => {
+  it('no excede si el potrero no tiene capacidad de carga configurada', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.potrero.findFirst.mockResolvedValue({ id: 'p1', capacidadCarga: null });
+    prisma.animal.count.mockResolvedValue(5);
+
+    const resultado = await service.validarCapacidad(TENANT_A, 'p1', 10);
+
+    expect(resultado).toEqual({ excede: false, ocupacionActual: 5, capacidadCarga: null, ocupacionResultante: 15 });
+  });
+
+  it('no excede si la ocupación resultante queda dentro de la capacidad de carga', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.potrero.findFirst.mockResolvedValue({ id: 'p1', capacidadCarga: 20 });
+    prisma.animal.count.mockResolvedValue(5);
+
+    const resultado = await service.validarCapacidad(TENANT_A, 'p1', 10);
+
+    expect(resultado).toEqual({ excede: false, ocupacionActual: 5, capacidadCarga: 20, ocupacionResultante: 15 });
+  });
+
+  it('excede si la ocupación resultante supera la capacidad de carga', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.potrero.findFirst.mockResolvedValue({ id: 'p1', capacidadCarga: 10 });
+    prisma.animal.count.mockResolvedValue(5);
+
+    const resultado = await service.validarCapacidad(TENANT_A, 'p1', 10);
+
+    expect(resultado).toEqual({ excede: true, ocupacionActual: 5, capacidadCarga: 10, ocupacionResultante: 15 });
+  });
+});
+
+describe('PotrerosService.diasDescanso (via obtener)', () => {
+  it('es null si el potrero tiene animales activos asignados', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.potrero.findFirst.mockResolvedValue({ id: 'p1' });
+    prisma.animal.count.mockResolvedValue(2);
+
+    const resultado = await service.obtener(TENANT_A, 'p1');
+
+    expect(resultado.diasDescanso).toBeNull();
+    expect(prisma.animalMovimiento.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('es null si el potrero está vacío pero nunca tuvo movimientos registrados', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.potrero.findFirst.mockResolvedValue({ id: 'p1' });
+    prisma.animal.count.mockResolvedValue(0);
+    prisma.animalMovimiento.findFirst.mockResolvedValue(null);
+
+    const resultado = await service.obtener(TENANT_A, 'p1');
+
+    expect(resultado.diasDescanso).toBeNull();
+  });
+
+  it('calcula los días desde la última salida cuando el potrero está vacío', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.potrero.findFirst.mockResolvedValue({ id: 'p1' });
+    prisma.animal.count.mockResolvedValue(0);
+    const hace3Dias = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+    prisma.animalMovimiento.findFirst.mockResolvedValue({ id: 'mov-1', fecha: hace3Dias });
+
+    const resultado = await service.obtener(TENANT_A, 'p1');
+
+    expect(resultado.diasDescanso).toBe(3);
+    expect(prisma.animalMovimiento.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { tenantId: TENANT_A, potreroOrigenId: 'p1' } }),
+    );
   });
 });
 

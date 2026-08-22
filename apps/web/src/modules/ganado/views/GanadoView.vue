@@ -357,6 +357,7 @@ const animalesAMover = ref<string[]>([]);
 const moverForm = ref({ potreroDestinoId: '', fecha: new Date().toISOString().slice(0, 10) });
 const moviendoAnimales = ref(false);
 const moverError = ref('');
+const mostrarConfirmarSobrecapacidad = ref(false);
 
 function toggleSeleccion(id: string) {
   if (seleccionados.value.has(id)) seleccionados.value.delete(id);
@@ -370,10 +371,11 @@ function abrirMover(ids: string[]) {
   animalesAMover.value = ids;
   moverForm.value = { potreroDestinoId: '', fecha: new Date().toISOString().slice(0, 10) };
   moverError.value = '';
+  mostrarConfirmarSobrecapacidad.value = false;
   mostrarMover.value = true;
 }
 
-async function confirmarMover() {
+async function confirmarMover(confirmarSobrecapacidad = false) {
   moverError.value = '';
   moviendoAnimales.value = true;
   try {
@@ -381,6 +383,7 @@ async function confirmarMover() {
       animalIds: animalesAMover.value,
       potreroDestinoId: moverForm.value.potreroDestinoId,
       fecha: moverForm.value.fecha,
+      confirmarSobrecapacidad,
     });
     mostrarMover.value = false;
     modoSeleccion.value = false;
@@ -388,9 +391,15 @@ async function confirmarMover() {
     tabsCargados.value = new Set();
     await cargar();
   } catch (error) {
-    moverError.value = isAxiosError(error)
-      ? ((error.response?.data as { message?: string } | undefined)?.message ?? 'No se pudo mover el/los animal(es).')
-      : 'No se pudo mover el/los animal(es).';
+    if (isAxiosError(error) && error.response?.status === 409) {
+      const data = error.response.data as { code?: string; message?: string };
+      moverError.value = data.message ?? 'El potrero destino no tiene capacidad suficiente.';
+      mostrarConfirmarSobrecapacidad.value = data.code === 'POTRERO_SOBRECARGADO';
+    } else {
+      moverError.value = isAxiosError(error)
+        ? ((error.response?.data as { message?: string } | undefined)?.message ?? 'No se pudo mover el/los animal(es).')
+        : 'No se pudo mover el/los animal(es).';
+    }
   } finally {
     moviendoAnimales.value = false;
   }
@@ -513,7 +522,18 @@ async function subirImportacion() {
       <div class="ganado-view__form-title">
         Mover {{ animalesAMover.length > 1 ? `${animalesAMover.length} animales` : 'animal' }} a otro potrero
       </div>
-      <div v-if="moverError" class="ganado-view__form-error">{{ moverError }}</div>
+      <div v-if="moverError" class="ganado-view__form-error">
+        {{ moverError }}
+        <button
+          v-if="mostrarConfirmarSobrecapacidad"
+          type="button"
+          class="ganado-view__confirm-btn"
+          :disabled="moviendoAnimales"
+          @click="confirmarMover(true)"
+        >
+          Confirmar de todas formas
+        </button>
+      </div>
       <div class="ganado-view__form-grid">
         <div class="ganado-view__field">
           <label>Potrero destino</label>
@@ -533,7 +553,7 @@ async function subirImportacion() {
           type="button"
           class="ganado-view__btn-primary"
           :disabled="moviendoAnimales || !moverForm.potreroDestinoId"
-          @click="confirmarMover"
+          @click="confirmarMover()"
         >
           {{ moviendoAnimales ? 'Moviendo…' : 'Confirmar movimiento' }}
         </button>

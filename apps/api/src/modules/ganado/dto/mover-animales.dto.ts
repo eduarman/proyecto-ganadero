@@ -1,4 +1,4 @@
-import { ArrayMinSize, IsArray, IsDateString, IsUUID } from 'class-validator';
+import { ArrayMinSize, IsArray, IsBoolean, IsDateString, IsOptional, IsUUID } from 'class-validator';
 
 export class MoverAnimalesDto {
   @IsArray()
@@ -11,4 +11,8 @@ export class MoverAnimalesDto {
 
   @IsDateString()
   fecha!: string;
+
+  @IsOptional()
+  @IsBoolean()
+  confirmarSobrecapacidad?: boolean;
 }

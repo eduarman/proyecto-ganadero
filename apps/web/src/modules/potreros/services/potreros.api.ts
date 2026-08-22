@@ -1,4 +1,5 @@
 import { http } from '../../../shared/api/http';
+import type { AnimalMovimiento } from '../../ganado/services/ganado.api';
 
 export type EstadoPotrero = 'ACTIVO' | 'INACTIVO';
 
@@ -11,6 +12,7 @@ export interface Potrero {
   capacidadCarga: string | null;
   estado: EstadoPotrero;
   ocupacionActual: number;
+  diasDescanso: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -40,5 +42,8 @@ export const potrerosApi = {
   },
   activar(id: string) {
     return http.patch<Potrero>(`/potreros/${id}/activar`);
+  },
+  movimientos(id: string) {
+    return http.get<AnimalMovimiento[]>(`/potreros/${id}/movimientos`).then((r) => r.data);
   },
 };

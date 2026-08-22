@@ -67,6 +67,7 @@ export interface MoverAnimalesPayload {
   animalIds: string[];
   potreroDestinoId: string;
   fecha: string;
+  confirmarSobrecapacidad?: boolean;
 }
 
 export interface ResultadoImportacion {

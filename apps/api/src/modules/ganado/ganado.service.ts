@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PotrerosService } from '../potreros/potreros.service';
 import { calcularCategoriaEtaria } from './categoria-etaria.util';
 import { ActualizarAnimalDto } from './dto/actualizar-animal.dto';
 import { CrearAnimalDto } from './dto/crear-animal.dto';
@@ -12,7 +13,10 @@ const GENEALOGIA_SELECT = { select: { id: true, identificador: true } } as const
 
 @Injectable()
 export class GanadoService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly potrerosService: PotrerosService,
+  ) {}
 
   private async assertIdentificadorDisponible(
     tenantId: string,
@@ -194,6 +198,23 @@ export class GanadoService {
     });
     if (animales.length !== animalIdsUnicos.length) {
       throw new NotFoundException('Uno o más animales no existen en este negocio.');
+    }
+
+    if (!dto.confirmarSobrecapacidad) {
+      // US-2.2: advertir (no bloquear) si el potrero destino queda por
+      // encima de su capacidad de carga configurada.
+      const capacidad = await this.potrerosService.validarCapacidad(
+        tenantId,
+        dto.potreroDestinoId,
+        animalIdsUnicos.length,
+      );
+      if (capacidad.excede) {
+        throw new ConflictException({
+          code: 'POTRERO_SOBRECARGADO',
+          message: `El potrero destino quedaría con ${capacidad.ocupacionResultante} animal(es), por encima de su capacidad de carga (${capacidad.capacidadCarga}). Confirmá si igual querés moverlos.`,
+          ...capacidad,
+        });
+      }
     }
 
     const fecha = new Date(dto.fecha);
