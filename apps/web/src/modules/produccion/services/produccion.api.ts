@@ -45,6 +45,35 @@ export interface IndicadoresProduccion {
   meses: { mes: string; total: number }[];
 }
 
+export interface RegistroPeso {
+  id: string;
+  tenantId: string;
+  animalId: string;
+  fecha: string;
+  pesoKg: string;
+  registradoPor: string;
+  createdAt: string;
+  animal: { id: string; identificador: string };
+}
+
+export interface CrearRegistroPesoPayload {
+  animalId: string;
+  fecha: string;
+  pesoKg: number;
+}
+
+export interface CrearRegistroPesoLotePayload {
+  fecha: string;
+  registros: { animalId: string; pesoKg: number }[];
+}
+
+export interface RegistroGdp {
+  id: string;
+  fecha: string;
+  pesoKg: string;
+  gdpKgDia: number | null;
+}
+
 export const produccionApi = {
   listar(animalId?: string) {
     return http.get<RegistroLeche[]>('/produccion/leche', { params: { animalId } }).then((r) => r.data);
@@ -60,5 +89,17 @@ export const produccionApi = {
   },
   registrarTotal(payload: CrearRegistroTotalPayload) {
     return http.post<RegistroLecheTotal>('/produccion/leche/total', payload).then((r) => r.data);
+  },
+  listarPesos(animalId?: string) {
+    return http.get<RegistroPeso[]>('/produccion/peso', { params: { animalId } }).then((r) => r.data);
+  },
+  registrarPeso(payload: CrearRegistroPesoPayload) {
+    return http.post<RegistroPeso>('/produccion/peso', payload).then((r) => r.data);
+  },
+  registrarPesoLote(payload: CrearRegistroPesoLotePayload) {
+    return http.post<RegistroPeso[]>('/produccion/peso/lote', payload).then((r) => r.data);
+  },
+  gdp(animalId: string) {
+    return http.get<RegistroGdp[]>(`/produccion/peso/gdp/${animalId}`).then((r) => r.data);
   },
 };

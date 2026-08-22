@@ -5,11 +5,13 @@ import { useBreakpoint } from '../../../shared/composables/useBreakpoint';
 import SectionCard from '../../../shared/components/SectionCard.vue';
 import Pill from '../../../shared/components/Pill.vue';
 import { ganadoApi, type Animal } from '../../ganado/services/ganado.api';
+import { potrerosApi, type Potrero } from '../../potreros/services/potreros.api';
 import {
   produccionApi,
   type IndicadoresProduccion,
   type RegistroLeche,
   type RegistroLecheTotal,
+  type RegistroPeso,
   type TurnoOrdenio,
 } from '../services/produccion.api';
 
@@ -33,23 +35,29 @@ function formatFecha(iso: string): string {
 
 const loading = ref(true);
 const animales = ref<Animal[]>([]);
+const potreros = ref<Potrero[]>([]);
 const indicadores = ref<IndicadoresProduccion | null>(null);
 const registros = ref<RegistroLeche[]>([]);
 const totales = ref<RegistroLecheTotal[]>([]);
+const pesos = ref<RegistroPeso[]>([]);
 
 async function cargar() {
   loading.value = true;
   try {
-    const [animalesResp, indicadoresResp, registrosResp, totalesResp] = await Promise.all([
+    const [animalesResp, indicadoresResp, registrosResp, totalesResp, potrerosResp, pesosResp] = await Promise.all([
       ganadoApi.listar({ limit: 100 }),
       produccionApi.indicadores(),
       produccionApi.listar(),
       produccionApi.listarTotales(),
+      potrerosApi.listar(),
+      produccionApi.listarPesos(),
     ]);
     animales.value = animalesResp.data;
     indicadores.value = indicadoresResp;
     registros.value = registrosResp;
     totales.value = totalesResp;
+    potreros.value = potrerosResp;
+    pesos.value = pesosResp;
   } finally {
     loading.value = false;
   }
@@ -159,6 +167,71 @@ async function guardarTotal() {
     savingTotal.value = false;
   }
 }
+
+// --- Registro de peso (US-3) ----------------------------------------------
+
+const pesoForm = ref({ animalId: '', fecha: new Date().toISOString().slice(0, 10), pesoKg: '' });
+const savingPeso = ref(false);
+const pesoError = ref('');
+
+async function guardarPeso() {
+  pesoError.value = '';
+  savingPeso.value = true;
+  try {
+    await produccionApi.registrarPeso({
+      animalId: pesoForm.value.animalId,
+      fecha: pesoForm.value.fecha,
+      pesoKg: Number(pesoForm.value.pesoKg),
+    });
+    pesoForm.value.pesoKg = '';
+    await cargar();
+  } catch (error) {
+    pesoError.value = isAxiosError(error)
+      ? ((error.response?.data as { message?: string } | undefined)?.message ?? 'No se pudo guardar el pesaje.')
+      : 'No se pudo guardar el pesaje.';
+  } finally {
+    savingPeso.value = false;
+  }
+}
+
+const showLotePeso = ref(false);
+const lotePesoFecha = ref(new Date().toISOString().slice(0, 10));
+const lotePesoPotreroId = ref('');
+const lotePesoValores = ref<Record<string, string>>({});
+const savingLotePeso = ref(false);
+const lotePesoError = ref('');
+
+const animalesLote = computed(() => {
+  const activos = animales.value.filter((a) => a.estado === 'ACTIVO');
+  if (!lotePesoPotreroId.value) return activos;
+  return activos.filter((a) => a.potreroActualId === lotePesoPotreroId.value);
+});
+
+async function guardarLotePeso() {
+  lotePesoError.value = '';
+  const registrosLote = Object.entries(lotePesoValores.value)
+    .filter(([, valor]) => valor !== '')
+    .map(([animalId, valor]) => ({ animalId, pesoKg: Number(valor) }));
+
+  if (registrosLote.length === 0) {
+    lotePesoError.value = 'Cargá al menos un peso para guardar el lote.';
+    return;
+  }
+
+  savingLotePeso.value = true;
+  try {
+    await produccionApi.registrarPesoLote({ fecha: lotePesoFecha.value, registros: registrosLote });
+    lotePesoValores.value = {};
+    showLotePeso.value = false;
+    await cargar();
+  } catch (error) {
+    lotePesoError.value = isAxiosError(error)
+      ? ((error.response?.data as { message?: string } | undefined)?.message ?? 'No se pudo guardar el lote de pesajes.')
+      : 'No se pudo guardar el lote de pesajes.';
+  } finally {
+    savingLotePeso.value = false;
+  }
+}
 </script>
 
 <template>
@@ -262,6 +335,75 @@ async function guardarTotal() {
       </SectionCard>
     </div>
 
+    <SectionCard :title="isMobile ? 'Registrar peso' : 'Registrar peso / GDP'">
+      <template #actions>
+        <button type="button" class="produccion-view__link-btn" @click="showLotePeso = !showLotePeso">
+          {{ showLotePeso ? 'Cancelar' : 'Cargar pesajes por lote' }}
+        </button>
+      </template>
+      <div v-if="pesoError" class="produccion-view__error">{{ pesoError }}</div>
+      <div class="produccion-view__field">
+        <label v-if="!isMobile">Bovino</label>
+        <select v-model="pesoForm.animalId">
+          <option value="" disabled>Seleccioná un animal</option>
+          <option v-for="a in animales" :key="a.id" :value="a.id">{{ a.identificador }}</option>
+        </select>
+      </div>
+      <div class="produccion-view__form-grid" :class="{ 'produccion-view__form-grid--mobile': isMobile }">
+        <div class="produccion-view__field">
+          <label v-if="!isMobile">Fecha</label>
+          <input v-model="pesoForm.fecha" type="date" />
+        </div>
+        <div class="produccion-view__field">
+          <label v-if="!isMobile">Peso (kg)</label>
+          <input v-model="pesoForm.pesoKg" type="number" min="0" step="0.1" placeholder="320" />
+        </div>
+      </div>
+      <button
+        type="button"
+        class="produccion-view__submit"
+        :disabled="savingPeso || !pesoForm.animalId || !pesoForm.pesoKg"
+        @click="guardarPeso"
+      >
+        {{ savingPeso ? 'Guardando…' : 'Guardar pesaje' }}
+      </button>
+
+      <div v-if="showLotePeso" class="produccion-view__total-form">
+        <div class="produccion-view__total-form-title">Pesajes por lote</div>
+        <div v-if="lotePesoError" class="produccion-view__error">{{ lotePesoError }}</div>
+        <div class="produccion-view__form-grid" :class="{ 'produccion-view__form-grid--mobile': isMobile }">
+          <div class="produccion-view__field">
+            <label>Fecha</label>
+            <input v-model="lotePesoFecha" type="date" />
+          </div>
+          <div class="produccion-view__field">
+            <label>Potrero</label>
+            <select v-model="lotePesoPotreroId">
+              <option value="">Todos los animales activos</option>
+              <option v-for="p in potreros" :key="p.id" :value="p.id">{{ p.nombre }}</option>
+            </select>
+          </div>
+        </div>
+        <div v-if="animalesLote.length === 0" class="produccion-view__muted">
+          No hay animales activos para este filtro.
+        </div>
+        <div v-else class="produccion-view__lote-grid">
+          <div v-for="a in animalesLote" :key="a.id" class="produccion-view__lote-row">
+            <span class="produccion-view__bold">{{ a.identificador }}</span>
+            <input v-model="lotePesoValores[a.id]" type="number" min="0" step="0.1" placeholder="kg" />
+          </div>
+        </div>
+        <button
+          type="button"
+          class="produccion-view__submit produccion-view__submit--sm"
+          :disabled="savingLotePeso"
+          @click="guardarLotePeso"
+        >
+          {{ savingLotePeso ? 'Guardando…' : 'Guardar pesajes del lote' }}
+        </button>
+      </div>
+    </SectionCard>
+
     <SectionCard v-if="isMobile" title="Producción mensual">
       <div class="produccion-view__chart produccion-view__chart--mobile">
         <div v-for="m in monthly" :key="m.month" class="produccion-view__bar-col produccion-view__bar-col--mobile">
@@ -308,6 +450,18 @@ async function guardarTotal() {
           <div class="produccion-view__muted">{{ formatFecha(t.fecha) }}</div>
         </div>
         <span class="produccion-view__liters">{{ t.litrosTotal }} L</span>
+      </div>
+    </div>
+
+    <div v-if="!loading" class="produccion-view__section">
+      <div class="produccion-view__heading">Pesajes recientes</div>
+      <div v-if="pesos.length === 0" class="produccion-view__muted">Todavía no hay pesajes registrados.</div>
+      <div v-for="p in pesos" :key="p.id" class="produccion-view__daily-card">
+        <div>
+          <div class="produccion-view__bold">{{ p.animal.identificador }}</div>
+          <div class="produccion-view__muted">{{ formatFecha(p.fecha) }}</div>
+        </div>
+        <span class="produccion-view__liters">{{ p.pesoKg }} kg</span>
       </div>
     </div>
   </div>
@@ -466,6 +620,31 @@ async function guardarTotal() {
   &__total-form-title {
     font-weight: 700;
     font-size: 0.8rem;
+  }
+
+  &__lote-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    max-height: 260px;
+    overflow-y: auto;
+  }
+
+  &__lote-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+
+    input {
+      max-width: 110px;
+      border: 1.5px solid #efead1;
+      border-radius: 12px;
+      padding: 0.5rem 0.7rem;
+      font-size: 0.8rem;
+      background: var(--color-white);
+      font-family: inherit;
+    }
   }
 
   &__tag {

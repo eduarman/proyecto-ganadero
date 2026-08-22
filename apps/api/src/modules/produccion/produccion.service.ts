@@ -1,6 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CrearRegistroLecheDto } from './dto/crear-registro-leche.dto';
+import { CrearRegistroPesoLoteDto } from './dto/crear-registro-peso-lote.dto';
+import { CrearRegistroPesoDto } from './dto/crear-registro-peso.dto';
 import { CrearRegistroTotalDto } from './dto/crear-registro-total.dto';
 
 const MESES_INDICADORES = 6;
@@ -70,6 +72,83 @@ export class ProduccionService {
       where: { tenantId },
       orderBy: { fecha: 'desc' },
       take: 50,
+    });
+  }
+
+  async registrarPeso(tenantId: string, dto: CrearRegistroPesoDto, registradoPor: string) {
+    const animal = await this.prisma.animal.findFirst({
+      where: { id: dto.animalId, tenantId },
+    });
+    if (!animal) {
+      throw new NotFoundException('Animal no encontrado.');
+    }
+
+    const fecha = new Date(dto.fecha);
+
+    // upsert: mismo patrón que registrarLeche — permite corregir un pesaje
+    // cargado por error el mismo día sin generar un registro duplicado.
+    return this.prisma.registroPeso.upsert({
+      where: { tenantId_animalId_fecha: { tenantId, animalId: dto.animalId, fecha } },
+      create: { tenantId, animalId: dto.animalId, fecha, pesoKg: dto.pesoKg, registradoPor },
+      update: { pesoKg: dto.pesoKg, registradoPor },
+      include: { animal: true },
+    });
+  }
+
+  async registrarPesoLote(tenantId: string, dto: CrearRegistroPesoLoteDto, registradoPor: string) {
+    const animalIdsUnicos = Array.from(new Set(dto.registros.map((r) => r.animalId)));
+    const animales = await this.prisma.animal.findMany({
+      where: { id: { in: animalIdsUnicos }, tenantId },
+    });
+    if (animales.length !== animalIdsUnicos.length) {
+      throw new NotFoundException('Uno o más animales no existen en este negocio.');
+    }
+
+    const fecha = new Date(dto.fecha);
+    return this.prisma.$transaction(
+      dto.registros.map((r) =>
+        this.prisma.registroPeso.upsert({
+          where: { tenantId_animalId_fecha: { tenantId, animalId: r.animalId, fecha } },
+          create: { tenantId, animalId: r.animalId, fecha, pesoKg: r.pesoKg, registradoPor },
+          update: { pesoKg: r.pesoKg, registradoPor },
+        }),
+      ),
+    );
+  }
+
+  listarPesos(tenantId: string, animalId?: string) {
+    return this.prisma.registroPeso.findMany({
+      where: { tenantId, ...(animalId && { animalId }) },
+      include: { animal: true },
+      orderBy: { fecha: 'desc' },
+      take: 50,
+    });
+  }
+
+  async gdp(tenantId: string, animalId: string) {
+    const animal = await this.prisma.animal.findFirst({ where: { id: animalId, tenantId } });
+    if (!animal) {
+      throw new NotFoundException('Animal no encontrado.');
+    }
+
+    const pesajes = await this.prisma.registroPeso.findMany({
+      where: { tenantId, animalId },
+      orderBy: { fecha: 'asc' },
+    });
+
+    let anterior: (typeof pesajes)[number] | null = null;
+    return pesajes.map((p) => {
+      let gdpKgDia: number | null = null;
+      if (anterior) {
+        const dias = Math.round((p.fecha.getTime() - anterior.fecha.getTime()) / (24 * 60 * 60 * 1000));
+        // El UNIQUE (tenantId, animalId, fecha) hace estructuralmente imposible
+        // dias === 0, pero se guarda igual contra división por cero.
+        if (dias > 0) {
+          gdpKgDia = (Number(p.pesoKg) - Number(anterior.pesoKg)) / dias;
+        }
+      }
+      anterior = p;
+      return { id: p.id, fecha: p.fecha, pesoKg: p.pesoKg, gdpKgDia };
     });
   }
 

@@ -76,6 +76,7 @@ model Negocio {
   aplicacionesSanitarias AplicacionSanitaria[]
   registrosLeche         RegistroLeche[]
   registrosLecheTotal    RegistroLecheTotal[]
+  registrosPeso          RegistroPeso[]
   servicios              Servicio[]
   diagnosticosGestacion  DiagnosticoGestacion[]
   partos                 Parto[]
@@ -110,6 +111,7 @@ model Usuario {
   aplicacionesSanitarias AplicacionSanitaria[]
   registrosLeche         RegistroLeche[]
   registrosLecheTotal    RegistroLecheTotal[]
+  registrosPeso          RegistroPeso[]
   suministrosRegistrados Suministro[]
   reportesGenerados      ReporteGenerado[]
   movimientosRegistrados AnimalMovimiento[]
@@ -264,6 +266,7 @@ model Animal {
   movimientos            AnimalMovimiento[]
   aplicacionesSanitarias AplicacionSanitaria[]
   registrosLeche         RegistroLeche[]
+  registrosPeso          RegistroPeso[]
   serviciosComoHembra    Servicio[]            @relation("ServicioHembra")
   serviciosComoMacho     Servicio[]            @relation("ServicioMacho")
   partosComoMadre        Parto[]               @relation("PartoMadre")
@@ -444,6 +447,24 @@ model RegistroLecheTotal {
   @@unique([tenantId, fecha, turno])
   @@index([tenantId, fecha])
   @@map("registros_leche_total")
+}
+
+model RegistroPeso {
+  id            String   @id @default(uuid())
+  tenantId      String   @map("tenant_id")
+  animalId      String   @map("animal_id")
+  fecha         DateTime
+  pesoKg        Decimal  @map("peso_kg") @db.Decimal(7, 2)
+  registradoPor String   @map("registrado_por")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  negocio     Negocio @relation(fields: [tenantId], references: [id])
+  animal      Animal  @relation(fields: [animalId], references: [id])
+  registrador Usuario @relation(fields: [registradoPor], references: [id])
+
+  @@unique([tenantId, animalId, fecha])
+  @@index([tenantId, fecha])
+  @@map("registros_peso")
 }
 
 // ---------------------------------------------------------------------------

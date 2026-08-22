@@ -14,7 +14,7 @@ import {
 } from '../services/ganado.api';
 import { potrerosApi, type Potrero } from '../../potreros/services/potreros.api';
 import { reproduccionApi, type Servicio } from '../../reproduccion/services/reproduccion.api';
-import { produccionApi, type RegistroLeche } from '../../produccion/services/produccion.api';
+import { produccionApi, type RegistroGdp, type RegistroLeche } from '../../produccion/services/produccion.api';
 import { sanidadApi, type AplicacionSanitaria } from '../../sanidad/services/sanidad.api';
 
 const { isMobile } = useBreakpoint();
@@ -316,6 +316,7 @@ const fichaTab = ref<FichaTab>('general');
 const cargandoTab = ref(false);
 const historialServicios = ref<Servicio[]>([]);
 const historialLeche = ref<RegistroLeche[]>([]);
+const historialPeso = ref<RegistroGdp[]>([]);
 const historialSanidad = ref<AplicacionSanitaria[]>([]);
 const historialMovimientos = ref<AnimalMovimiento[]>([]);
 const tabsCargados = ref(new Set<string>());
@@ -335,8 +336,14 @@ async function abrirTab(tab: FichaTab) {
   try {
     const animalId = selected.value.id;
     if (tab === 'reproduccion') historialServicios.value = await reproduccionApi.listarServicios(animalId);
-    else if (tab === 'produccion') historialLeche.value = await produccionApi.listar(animalId);
-    else if (tab === 'sanidad') historialSanidad.value = await sanidadApi.historialAnimal(animalId);
+    else if (tab === 'produccion') {
+      const [leche, peso] = await Promise.all([
+        produccionApi.listar(animalId),
+        produccionApi.gdp(animalId),
+      ]);
+      historialLeche.value = leche;
+      historialPeso.value = peso;
+    } else if (tab === 'sanidad') historialSanidad.value = await sanidadApi.historialAnimal(animalId);
     else if (tab === 'movimientos') historialMovimientos.value = await ganadoApi.movimientosDeAnimal(animalId);
     tabsCargados.value.add(clave);
   } finally {
@@ -942,12 +949,22 @@ async function subirImportacion() {
 
             <div v-else-if="fichaTab === 'produccion'">
               <div v-if="historialLeche.length === 0" class="ganado-view__history-empty">
-                Sin registros de producción.
+                Sin registros de producción de leche.
               </div>
               <div v-for="r in historialLeche" :key="r.id" class="ganado-view__hist-row">
                 <span class="ganado-view__muted">{{ formatFecha(r.fecha) }}</span>
                 <span>{{ formatEnum(r.turno) }}</span>
                 <span>{{ r.litros }} L</span>
+              </div>
+
+              <div class="ganado-view__hist-subheading">Pesajes</div>
+              <div v-if="historialPeso.length === 0" class="ganado-view__history-empty">
+                Sin pesajes registrados.
+              </div>
+              <div v-for="p in historialPeso" :key="p.id" class="ganado-view__hist-row">
+                <span class="ganado-view__muted">{{ formatFecha(p.fecha) }}</span>
+                <span>{{ p.pesoKg }} kg</span>
+                <span>{{ p.gdpKgDia === null ? '—' : `${p.gdpKgDia.toFixed(1)} kg/día` }}</span>
               </div>
             </div>
 
@@ -1346,6 +1363,14 @@ async function subirImportacion() {
     font-size: 0.8rem;
     color: rgba(40, 54, 24, 0.55);
     padding: 0.6rem 0;
+    border-top: 1px solid #f2efdd;
+  }
+
+  &__hist-subheading {
+    font-weight: 700;
+    font-size: 0.78rem;
+    margin-top: 0.85rem;
+    padding-top: 0.6rem;
     border-top: 1px solid #f2efdd;
   }
 
