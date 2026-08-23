@@ -36,4 +36,12 @@ export class AppConfigService {
   get supabaseReportesBucket(): string {
     return this.config.get<string>('SUPABASE_REPORTES_BUCKET', 'reportes');
   }
+
+  get resendApiKey(): string | undefined {
+    return this.config.get<string>('RESEND_API_KEY');
+  }
+
+  get emailFrom(): string | undefined {
+    return this.config.get<string>('EMAIL_FROM');
+  }
 }

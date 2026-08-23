@@ -1,17 +1,29 @@
 <script setup lang="ts">
+import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useBreakpoint } from '../../../shared/composables/useBreakpoint';
 import { useAuthStore } from '../../../stores/auth.store';
+import { authApi } from '../../auth/services/auth.api';
 
 const { isMobile } = useBreakpoint();
 const auth = useAuthStore();
 const router = useRouter();
 
-const roleOptions = ['Administrador', 'Veterinario', 'Gerente', 'Capataz'];
+const cerrandoTodas = ref(false);
 
 async function logout() {
   await auth.logout();
   router.push('/login');
+}
+
+async function logoutAll() {
+  cerrandoTodas.value = true;
+  try {
+    await authApi.logoutAll();
+  } finally {
+    auth.clearSession();
+    router.push('/login');
+  }
 }
 </script>
 
@@ -30,15 +42,7 @@ async function logout() {
           <div class="cuenta-view__meta">
             <div class="cuenta-view__meta-row">
               <span class="cuenta-view__meta-label">Correo</span>
-              <span class="cuenta-view__meta-value">marcos@agroganado.com</span>
-            </div>
-            <div class="cuenta-view__meta-row">
-              <span class="cuenta-view__meta-label">Teléfono</span>
-              <span class="cuenta-view__meta-value">+593 99 123 4567</span>
-            </div>
-            <div class="cuenta-view__meta-row">
-              <span class="cuenta-view__meta-label">Desde</span>
-              <span class="cuenta-view__meta-value">Marzo 2023</span>
+              <span class="cuenta-view__meta-value">{{ auth.usuario?.email }}</span>
             </div>
           </div>
           <button type="button" class="cuenta-view__photo-btn">Cambiar foto</button>
@@ -55,20 +59,12 @@ async function logout() {
             </div>
             <div class="cuenta-view__field">
               <label v-if="!isMobile">Correo electrónico</label>
-              <input value="marcos@agroganado.com" />
+              <input :value="auth.usuario?.email" />
             </div>
-            <template v-if="!isMobile">
-              <div class="cuenta-view__field">
-                <label>Teléfono</label>
-                <input value="+593 99 123 4567" />
-              </div>
-              <div class="cuenta-view__field">
-                <label>Rol</label>
-                <select>
-                  <option v-for="r in roleOptions" :key="r">{{ r }}</option>
-                </select>
-              </div>
-            </template>
+            <div v-if="!isMobile" class="cuenta-view__field">
+              <label>Rol</label>
+              <input :value="auth.user.role" disabled />
+            </div>
           </div>
           <button type="button" class="cuenta-view__submit">Guardar cambios</button>
         </div>
@@ -97,6 +93,23 @@ async function logout() {
           </div>
           <button type="button" class="cuenta-view__logout-btn" @click="logout">
             {{ isMobile ? 'Salir' : 'Cerrar sesión' }}
+          </button>
+        </div>
+
+        <div class="cuenta-view__card cuenta-view__logout-card">
+          <div>
+            <div class="cuenta-view__card-title">Cerrar sesión en todos los dispositivos</div>
+            <div class="cuenta-view__logout-hint">
+              {{ isMobile ? 'Salir de todos lados' : 'Invalida la sesión en todos tus dispositivos activos.' }}
+            </div>
+          </div>
+          <button
+            type="button"
+            class="cuenta-view__logout-btn"
+            :disabled="cerrandoTodas"
+            @click="logoutAll"
+          >
+            {{ cerrandoTodas ? 'Cerrando…' : (isMobile ? 'Salir todo' : 'Cerrar todas') }}
           </button>
         </div>
       </div>
@@ -311,6 +324,11 @@ async function logout() {
     cursor: pointer;
     font-family: inherit;
     flex: none;
+
+    &:disabled {
+      opacity: 0.6;
+      cursor: progress;
+    }
   }
 }
 </style>

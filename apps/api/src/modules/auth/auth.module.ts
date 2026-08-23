@@ -8,6 +8,7 @@ import { AuthService } from './auth.service';
 import { ConsoleEmailSender, EmailSender } from './services/email-sender';
 import { PasswordService } from './services/password.service';
 import { RefreshTokenService } from './services/refresh-token.service';
+import { ResendEmailSender } from './services/resend-email-sender';
 import { JwtStrategy } from './strategies/jwt.strategy';
 
 @Module({
@@ -31,7 +32,12 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     PasswordService,
     RefreshTokenService,
     JwtStrategy,
-    { provide: EmailSender, useClass: ConsoleEmailSender },
+    {
+      provide: EmailSender,
+      inject: [AppConfigService],
+      useFactory: (config: AppConfigService) =>
+        config.resendApiKey && config.emailFrom ? new ResendEmailSender(config) : new ConsoleEmailSender(),
+    },
   ],
 })
 export class AuthModule {}

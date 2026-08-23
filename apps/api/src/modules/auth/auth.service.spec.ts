@@ -47,12 +47,15 @@ function buildDeps() {
     send: jest.fn().mockResolvedValue(undefined),
   };
 
+  const config = { corsOrigin: 'http://localhost:5173' };
+
   const service = new AuthService(
     prisma as any,
     passwordService as any,
     refreshTokenService as any,
     jwtService as any,
     emailSender as any,
+    config as any,
   );
 
   return { service, prisma, passwordService, refreshTokenService, jwtService, emailSender };

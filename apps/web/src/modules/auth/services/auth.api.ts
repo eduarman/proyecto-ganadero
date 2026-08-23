@@ -28,6 +28,12 @@ export interface MeResponse {
   permisos: string[];
 }
 
+export interface RegistroPayload {
+  nombre: string;
+  email: string;
+  password: string;
+}
+
 export const authApi = {
   login(email: string, password: string) {
     return http.post<LoginResponse>('/auth/login', { email, password }).then((r) => r.data);
@@ -41,7 +47,25 @@ export const authApi = {
   logout() {
     return http.post<void>('/auth/logout');
   },
+  logoutAll() {
+    return http.post<void>('/auth/logout-all');
+  },
   switchTenant(negocioId: string) {
     return http.post<{ accessToken: string }>('/auth/switch-tenant', { negocioId }).then((r) => r.data);
+  },
+  registro(payload: RegistroPayload) {
+    return http.post<{ usuarioId: string; email: string }>('/auth/registro', payload).then((r) => r.data);
+  },
+  recuperarPassword(email: string) {
+    return http.post<void>('/auth/recuperar-password', { email });
+  },
+  resetPassword(token: string, password: string) {
+    return http.post<void>('/auth/reset-password', { token, password });
+  },
+  verificarEmail(token: string) {
+    return http.post<void>('/auth/verificar-email', { token });
+  },
+  reenviarVerificacion(email: string) {
+    return http.post<void>('/auth/reenviar-verificacion', { email });
   },
 };

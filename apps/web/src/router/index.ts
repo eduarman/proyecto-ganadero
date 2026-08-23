@@ -20,6 +20,26 @@ const router = createRouter({
       component: () => import('../modules/auth/views/LoginView.vue'),
     },
     {
+      path: '/registro',
+      name: 'registro',
+      component: () => import('../modules/auth/views/RegistroView.vue'),
+    },
+    {
+      path: '/recuperar-password',
+      name: 'recuperar-password',
+      component: () => import('../modules/auth/views/RecuperarPasswordView.vue'),
+    },
+    {
+      path: '/reset-password',
+      name: 'reset-password',
+      component: () => import('../modules/auth/views/ResetPasswordView.vue'),
+    },
+    {
+      path: '/verificar-email',
+      name: 'verificar-email',
+      component: () => import('../modules/auth/views/VerificarEmailView.vue'),
+    },
+    {
       path: '/',
       component: ResponsiveShell,
       children: [
@@ -133,6 +153,16 @@ const router = createRouter({
 // antes de decidir si redirige a /login.
 let sessionRestoreAttempted = false;
 
+// Rutas de auth accesibles solo si NO hay sesión activa (design.md) — si ya
+// hay sesión, se redirige a /dashboard en vez de mostrarlas.
+const PUBLIC_AUTH_ROUTES = new Set([
+  'login',
+  'registro',
+  'recuperar-password',
+  'reset-password',
+  'verificar-email',
+]);
+
 router.beforeEach(async (to) => {
   const auth = useAuthStore();
 
@@ -141,11 +171,13 @@ router.beforeEach(async (to) => {
     await auth.restoreSession();
   }
 
-  if (to.name !== 'login' && !auth.isAuthenticated) {
+  const isPublicAuthRoute = typeof to.name === 'string' && PUBLIC_AUTH_ROUTES.has(to.name);
+
+  if (!isPublicAuthRoute && !auth.isAuthenticated) {
     return { name: 'login' };
   }
 
-  if (to.name === 'login' && auth.isAuthenticated) {
+  if (isPublicAuthRoute && auth.isAuthenticated) {
     return { path: '/dashboard' };
   }
 

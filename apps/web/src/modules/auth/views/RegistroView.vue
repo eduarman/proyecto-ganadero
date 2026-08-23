@@ -2,66 +2,68 @@
 import { ref } from 'vue';
 import { isAxiosError } from 'axios';
 import { useForm, useField } from 'vee-validate';
-import { useRouter } from 'vue-router';
 import { useBreakpoint } from '../../../shared/composables/useBreakpoint';
-import { useAuthStore } from '../../../stores/auth.store';
 import AuthLayout from '../../../layouts/AuthLayout.vue';
 import MobileAuthLayout from '../../../layouts/MobileAuthLayout.vue';
 import PasswordInput from '../components/PasswordInput.vue';
 import { authApi } from '../services/auth.api';
-import { loginSchema } from '../validation/login.schema';
+import { registroSchema } from '../validation/registro.schema';
 
 const { isMobile } = useBreakpoint();
-const router = useRouter();
-const auth = useAuthStore();
 
-const { handleSubmit, isSubmitting } = useForm({ validationSchema: loginSchema });
+const { handleSubmit, isSubmitting } = useForm({ validationSchema: registroSchema });
+const { value: nombre, errorMessage: nombreError } = useField<string>('nombre');
 const { value: email, errorMessage: emailError } = useField<string>('email');
 const { value: password, errorMessage: passwordError } = useField<string>('password');
-const remember = ref(false);
 const formError = ref('');
-const mostrarReenviarVerificacion = ref(false);
-const reenviando = ref(false);
-const reenviado = ref(false);
+const registrado = ref(false);
 
 const onSubmit = handleSubmit(async (values) => {
   formError.value = '';
-  mostrarReenviarVerificacion.value = false;
-  reenviado.value = false;
   try {
-    await auth.login(values.email, values.password);
-    router.push('/dashboard');
+    await authApi.registro({ nombre: values.nombre, email: values.email, password: values.password });
+    registrado.value = true;
   } catch (error) {
-    if (isAxiosError(error) && error.response?.status === 403) {
-      const data = error.response.data as { code?: string; message?: string };
-      mostrarReenviarVerificacion.value = data.code === 'EMAIL_NOT_VERIFIED';
-    }
     formError.value = isAxiosError(error)
-      ? (error.response?.data as { message?: string } | undefined)?.message ?? 'No se pudo iniciar sesión.'
-      : 'No se pudo iniciar sesión.';
+      ? (error.response?.data as { message?: string } | undefined)?.message ?? 'No se pudo crear la cuenta.'
+      : 'No se pudo crear la cuenta.';
   }
 });
-
-async function reenviarVerificacion() {
-  reenviando.value = true;
-  try {
-    await authApi.reenviarVerificacion(email.value);
-    reenviado.value = true;
-  } finally {
-    reenviando.value = false;
-  }
-}
 </script>
 
 <template>
   <component :is="isMobile ? MobileAuthLayout : AuthLayout">
-    <form class="login-form" @submit.prevent="onSubmit">
+    <div v-if="registrado" class="login-form">
       <div class="login-form__head">
-        <div class="login-form__title">Iniciar sesión</div>
-        <div class="login-form__subtitle">Ingresa tus credenciales para acceder al sistema.</div>
+        <div class="login-form__title">Revisá tu correo</div>
+        <div class="login-form__subtitle">
+          Te enviamos un link para verificar tu cuenta. Una vez verificada, ya podés iniciar sesión.
+        </div>
+      </div>
+      <router-link to="/login" class="login-form__submit login-form__submit--link">
+        Ir a iniciar sesión
+      </router-link>
+    </div>
+
+    <form v-else class="login-form" @submit.prevent="onSubmit">
+      <div class="login-form__head">
+        <div class="login-form__title">Crear cuenta</div>
+        <div class="login-form__subtitle">Empezá a gestionar tu hato en minutos.</div>
       </div>
 
       <div class="login-form__fields">
+        <div class="login-form__field">
+          <label class="login-form__label">Nombre completo</label>
+          <input
+            v-model="nombre"
+            type="text"
+            class="login-form__input"
+            :class="{ 'login-form__input--error': nombreError }"
+            placeholder="Tu nombre"
+          />
+          <div v-if="nombreError" class="login-form__error">{{ nombreError }}</div>
+        </div>
+
         <div class="login-form__field">
           <label class="login-form__label">Correo electrónico</label>
           <input
@@ -77,39 +79,17 @@ async function reenviarVerificacion() {
         <div class="login-form__field">
           <label class="login-form__label">Contraseña</label>
           <PasswordInput v-model="password" :error="passwordError" />
+          <div class="login-form__hint">Mínimo 8 caracteres, con una mayúscula y un número.</div>
         </div>
 
-        <div class="login-form__row">
-          <label class="login-form__remember">
-            <input v-model="remember" type="checkbox" />
-            Recordarme
-          </label>
-          <router-link to="/recuperar-password" class="login-form__link">
-            ¿Olvidaste tu contraseña?
-          </router-link>
-        </div>
-
-        <div v-if="formError" class="login-form__error login-form__error--form">
-          {{ formError }}
-          <button
-            v-if="mostrarReenviarVerificacion && !reenviado"
-            type="button"
-            class="login-form__resend-btn"
-            :disabled="reenviando"
-            @click="reenviarVerificacion"
-          >
-            {{ reenviando ? 'Enviando…' : 'Reenviar verificación' }}
-          </button>
-          <div v-else-if="reenviado" class="login-form__resend-ok">Listo, revisá tu correo.</div>
-        </div>
+        <div v-if="formError" class="login-form__error login-form__error--form">{{ formError }}</div>
 
         <button type="submit" class="login-form__submit" :disabled="isSubmitting">
-          {{ isSubmitting ? 'Ingresando…' : 'Ingresar' }}
+          {{ isSubmitting ? 'Creando cuenta…' : 'Crear cuenta' }}
         </button>
 
         <div class="login-form__row login-form__row--center">
-          <span class="login-form__muted">¿No tenés cuenta?</span>
-          <router-link to="/registro" class="login-form__link">Creá una</router-link>
+          <router-link to="/login" class="login-form__link">Ya tengo cuenta, iniciar sesión</router-link>
         </div>
       </div>
     </form>
@@ -164,6 +144,11 @@ async function reenviarVerificacion() {
     }
   }
 
+  &__hint {
+    font-size: 0.68rem;
+    color: rgba(40, 54, 24, 0.5);
+  }
+
   &__error {
     font-size: 0.7rem;
     color: var(--color-warn);
@@ -176,51 +161,6 @@ async function reenviarVerificacion() {
 
     &--center {
       justify-content: center;
-      gap: 0.4rem;
-    }
-  }
-
-  &__muted {
-    font-size: 0.8rem;
-    color: rgba(40, 54, 24, 0.6);
-  }
-
-  &__resend-btn {
-    align-self: flex-start;
-    background: transparent;
-    border: none;
-    color: var(--color-primary);
-    font-weight: 700;
-    font-size: 0.72rem;
-    cursor: pointer;
-    font-family: inherit;
-    padding: 0;
-    text-decoration: underline;
-
-    &:disabled {
-      opacity: 0.6;
-      cursor: progress;
-    }
-  }
-
-  &__resend-ok {
-    font-size: 0.72rem;
-    color: var(--color-primary);
-    font-weight: 600;
-  }
-
-  &__remember {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 0.8rem;
-    color: rgba(40, 54, 24, 0.7);
-    cursor: pointer;
-
-    input {
-      accent-color: var(--color-primary);
-      width: 15px;
-      height: 15px;
     }
   }
 
@@ -240,10 +180,17 @@ async function reenviarVerificacion() {
     cursor: pointer;
     font-family: inherit;
     margin-top: 0.3rem;
+    text-align: center;
+    text-decoration: none;
+    display: block;
 
     &:disabled {
       opacity: 0.7;
       cursor: progress;
+    }
+
+    &--link {
+      margin-top: 0;
     }
   }
 

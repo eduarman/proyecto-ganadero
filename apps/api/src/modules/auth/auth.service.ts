@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { EstadoCuenta, RolUsuario, Usuario } from '@prisma/client';
+import { AppConfigService } from '../../config/app-config.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RegistroDto } from './dto/registro.dto';
 import { JwtPayload } from './jwt-payload.interface';
@@ -55,6 +56,7 @@ export class AuthService {
     private readonly refreshTokenService: RefreshTokenService,
     private readonly jwtService: JwtService,
     private readonly emailSender: EmailSender,
+    private readonly config: AppConfigService,
   ) {}
 
   private resolveTenantContext(
@@ -237,7 +239,7 @@ export class AuthService {
     await this.emailSender.send({
       to: usuario.email,
       subject: 'Verifica tu cuenta',
-      body: `Tu token de verificación es: ${raw}`,
+      body: `Hacé click en el siguiente link para verificar tu cuenta:\n${this.config.corsOrigin}/verificar-email?token=${raw}`,
     });
 
     return { usuarioId: usuario.id, email: usuario.email };
@@ -346,7 +348,7 @@ export class AuthService {
       await this.emailSender.send({
         to: usuario.email,
         subject: 'Recuperación de contraseña',
-        body: `Tu token de recuperación es: ${raw} (válido por 30 minutos)`,
+        body: `Hacé click en el siguiente link para elegir una nueva contraseña (válido por 30 minutos):\n${this.config.corsOrigin}/reset-password?token=${raw}`,
       });
     }
     // Mensaje de éxito siempre igual, exista o no el email (anti-enumeración).
@@ -427,7 +429,7 @@ export class AuthService {
       await this.emailSender.send({
         to: usuario.email,
         subject: 'Verifica tu cuenta',
-        body: `Tu token de verificación es: ${raw}`,
+        body: `Hacé click en el siguiente link para verificar tu cuenta:\n${this.config.corsOrigin}/verificar-email?token=${raw}`,
       });
     }
     // Mensaje de éxito siempre igual, evita enumeración de usuarios.
