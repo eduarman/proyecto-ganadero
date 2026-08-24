@@ -7,6 +7,8 @@ export const GESTACION_DIAS: Record<Especie, number> = {
   [Especie.BOVINO]: 283,
   [Especie.BUFALINO]: 310,
 };
+export const CICLO_CELO_DIAS = 21;
+export const EDAD_DESTETE_DIAS = 240;
 
 function sumarDias(fecha: Date, dias: number): Date {
   return new Date(fecha.getTime() + dias * 24 * 60 * 60 * 1000);

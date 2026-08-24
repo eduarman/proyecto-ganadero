@@ -6,6 +6,8 @@ import { TenantGuard } from '../../common/guards/tenant.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { JwtPayload } from '../auth/jwt-payload.interface';
+import { CrearCeloDto } from './dto/crear-celo.dto';
+import { CrearDesteteDto } from './dto/crear-destete.dto';
 import { CrearDiagnosticoDto } from './dto/crear-diagnostico.dto';
 import { CrearPartoDto } from './dto/crear-parto.dto';
 import { CrearServicioDto } from './dto/crear-servicio.dto';
@@ -34,6 +36,18 @@ export class ReproduccionController {
   @Roles(...ROLES_ESCRITURA)
   crearParto(@CurrentUser() user: JwtPayload, @Body() dto: CrearPartoDto) {
     return this.reproduccionService.crearParto(user.tenantId as string, dto);
+  }
+
+  @Post('celos')
+  @Roles(...ROLES_ESCRITURA)
+  crearCelo(@CurrentUser() user: JwtPayload, @Body() dto: CrearCeloDto) {
+    return this.reproduccionService.crearCelo(user.tenantId as string, dto);
+  }
+
+  @Post('destetes')
+  @Roles(...ROLES_ESCRITURA)
+  crearDestete(@CurrentUser() user: JwtPayload, @Body() dto: CrearDesteteDto) {
+    return this.reproduccionService.crearDestete(user.tenantId as string, dto);
   }
 
   @Get('servicios')

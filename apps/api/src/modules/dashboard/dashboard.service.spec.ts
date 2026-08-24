@@ -13,8 +13,12 @@ function buildDeps() {
   const sanidadService = { alertas: jest.fn().mockResolvedValue([]) };
   const reproduccionService = {
     contarPrenadas: jest.fn().mockResolvedValue(0),
-    pendientesDiagnostico: jest.fn().mockResolvedValue([]),
-    calendario: jest.fn().mockResolvedValue([]),
+    calendario: jest.fn().mockResolvedValue({
+      partosProximos: [],
+      diagnosticosPendientes: [],
+      celosEsperados: [],
+      destetesSugeridos: [],
+    }),
   };
 
   const service = new DashboardService(
@@ -72,12 +76,17 @@ describe('DashboardService.obtenerResumen', () => {
         animal: { identificador: 'A001' },
       },
     ]);
-    reproduccionService.calendario.mockResolvedValue([
-      {
-        fechaProbableParto: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
-        animal: { identificador: 'A002' },
-      },
-    ]);
+    reproduccionService.calendario.mockResolvedValue({
+      partosProximos: [
+        {
+          fechaProbableParto: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
+          animal: { identificador: 'A002' },
+        },
+      ],
+      diagnosticosPendientes: [],
+      celosEsperados: [],
+      destetesSugeridos: [],
+    });
 
     const resumen = await service.obtenerResumen(TENANT_A);
 

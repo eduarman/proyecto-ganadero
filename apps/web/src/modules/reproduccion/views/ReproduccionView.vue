@@ -9,6 +9,7 @@ import Pill from '../../../shared/components/Pill.vue';
 import { ganadoApi, type Animal } from '../../ganado/services/ganado.api';
 import {
   reproduccionApi,
+  type CalendarioReproductivo,
   type MetodoDiagnostico,
   type Servicio,
   type TipoServicio,
@@ -16,8 +17,8 @@ import {
 
 const { isMobile } = useBreakpoint();
 const eventType = ref('Inseminación');
-const mobileTabs = ['Insem.', 'Natural', 'Palpación'];
-const desktopTabs = ['Inseminación', 'Servicio natural', 'Palpación'];
+const mobileTabs = ['Insem.', 'Natural', 'Palpación', 'Celo', 'Destete'];
+const desktopTabs = ['Inseminación', 'Servicio natural', 'Palpación', 'Celo', 'Destete'];
 
 const TAB_A_TIPO: Record<string, TipoServicio> = {
   Inseminación: 'IA',
@@ -36,6 +37,8 @@ const METODO_LABELS: Record<MetodoDiagnostico, string> = {
 };
 
 const isPalpacion = computed(() => eventType.value === 'Palpación');
+const isCelo = computed(() => eventType.value === 'Celo');
+const isDestete = computed(() => eventType.value === 'Destete');
 
 const TIPO_SERVICIO_LABELS: Record<TipoServicio, string> = {
   IA: 'Inseminación artificial',
@@ -62,10 +65,18 @@ function formatFecha(iso: string) {
   return new Date(iso).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' });
 }
 
+const CALENDARIO_VACIO: CalendarioReproductivo = {
+  partosProximos: [],
+  diagnosticosPendientes: [],
+  celosEsperados: [],
+  destetesSugeridos: [],
+};
+
 const loading = ref(true);
+const animales = ref<Animal[]>([]);
 const hembras = ref<Animal[]>([]);
 const pendientes = ref<Servicio[]>([]);
-const calendario = ref<Servicio[]>([]);
+const calendario = ref<CalendarioReproductivo>(CALENDARIO_VACIO);
 const historial = ref<Servicio[]>([]);
 
 async function cargar() {
@@ -77,6 +88,7 @@ async function cargar() {
       reproduccionApi.calendario(),
       reproduccionApi.listarServicios(),
     ]);
+    animales.value = animalesResp.data;
     hembras.value = animalesResp.data.filter((a) => a.sexo === 'HEMBRA');
     pendientes.value = pendientesResp;
     calendario.value = calendarioResp;
@@ -106,6 +118,8 @@ const form = ref({
   semenReferencia: '',
   resultado: 'Positiva' as (typeof RESULTADO_OPCIONES)[number],
   metodo: 'PALPACION' as MetodoDiagnostico,
+  observaciones: '',
+  pesoDestete: '',
 });
 const saving = ref(false);
 const errorMsg = ref('');
@@ -119,6 +133,8 @@ function resetForm() {
     semenReferencia: '',
     resultado: 'Positiva',
     metodo: 'PALPACION',
+    observaciones: '',
+    pesoDestete: '',
   };
   mostrarConfirmarDuplicado.value = false;
 }
@@ -133,6 +149,18 @@ async function guardar(confirmarDuplicado = false) {
         resultado: RESULTADO_A_ENUM[form.value.resultado],
         metodo: form.value.metodo,
         fecha: form.value.fecha,
+      });
+    } else if (isCelo.value) {
+      await reproduccionApi.crearCelo({
+        animalId: form.value.animalId,
+        fecha: form.value.fecha,
+        observaciones: form.value.observaciones || undefined,
+      });
+    } else if (isDestete.value) {
+      await reproduccionApi.crearDestete({
+        animalId: form.value.animalId,
+        fecha: form.value.fecha,
+        pesoDestete: form.value.pesoDestete ? Number(form.value.pesoDestete) : undefined,
       });
     } else {
       await reproduccionApi.crearServicio({
@@ -185,13 +213,17 @@ async function guardar(confirmarDuplicado = false) {
         <div class="reproduccion-view__form-grid" :class="{ 'reproduccion-view__form-grid--mobile': isMobile }">
           <div class="reproduccion-view__field">
             <label v-if="!isMobile">Bovino</label>
-            <select v-if="!isPalpacion" v-model="form.animalId">
-              <option value="" disabled>Seleccioná una hembra</option>
-              <option v-for="a in hembras" :key="a.id" :value="a.id">{{ a.identificador }}</option>
-            </select>
-            <select v-else v-model="form.servicioId">
+            <select v-if="isPalpacion" v-model="form.servicioId">
               <option value="" disabled>Seleccioná una hembra con servicio pendiente</option>
               <option v-for="s in pendientes" :key="s.id" :value="s.id">{{ s.animal.identificador }}</option>
+            </select>
+            <select v-else-if="isDestete" v-model="form.animalId">
+              <option value="" disabled>Seleccioná una cría</option>
+              <option v-for="a in animales" :key="a.id" :value="a.id">{{ a.identificador }}</option>
+            </select>
+            <select v-else v-model="form.animalId">
+              <option value="" disabled>Seleccioná una hembra</option>
+              <option v-for="a in hembras" :key="a.id" :value="a.id">{{ a.identificador }}</option>
             </select>
           </div>
           <div class="reproduccion-view__field">
@@ -199,7 +231,15 @@ async function guardar(confirmarDuplicado = false) {
             <input v-model="form.fecha" type="date" />
           </div>
           <template v-if="!isMobile">
-            <div v-if="!isPalpacion" class="reproduccion-view__field">
+            <div v-if="isCelo" class="reproduccion-view__field">
+              <label>Observaciones</label>
+              <input v-model="form.observaciones" placeholder="Intensidad, método de detección" />
+            </div>
+            <div v-else-if="isDestete" class="reproduccion-view__field">
+              <label>Peso al destete (kg, opcional)</label>
+              <input v-model="form.pesoDestete" type="number" min="0" step="0.1" placeholder="180" />
+            </div>
+            <div v-else-if="!isPalpacion" class="reproduccion-view__field">
               <label>Toro / Semen</label>
               <input v-model="form.semenReferencia" placeholder="Toro Cacique" />
             </div>
@@ -230,10 +270,10 @@ async function guardar(confirmarDuplicado = false) {
       </SectionCard>
 
       <SectionCard v-if="!isMobile" title="Partos próximos">
-        <div v-if="!loading && calendario.length === 0" class="reproduccion-view__muted">
+        <div v-if="!loading && calendario.partosProximos.length === 0" class="reproduccion-view__muted">
           No hay preñeces confirmadas con parto próximo.
         </div>
-        <div v-for="s in calendario" :key="s.id" class="reproduccion-view__row">
+        <div v-for="s in calendario.partosProximos" :key="s.id" class="reproduccion-view__row">
           <DayBadge :day="diaMes(s.fechaProbableParto).day" :month="diaMes(s.fechaProbableParto).month" />
           <div class="reproduccion-view__row-info">
             <div class="reproduccion-view__row-title">{{ s.animal.identificador }}</div>
@@ -250,10 +290,10 @@ async function guardar(confirmarDuplicado = false) {
 
     <div v-if="isMobile" class="reproduccion-view__section">
       <div class="reproduccion-view__heading">Partos próximos</div>
-      <div v-if="!loading && calendario.length === 0" class="reproduccion-view__muted">
+      <div v-if="!loading && calendario.partosProximos.length === 0" class="reproduccion-view__muted">
         No hay preñeces confirmadas con parto próximo.
       </div>
-      <div v-for="s in calendario" :key="s.id" class="reproduccion-view__card">
+      <div v-for="s in calendario.partosProximos" :key="s.id" class="reproduccion-view__card">
         <DayBadge :day="diaMes(s.fechaProbableParto).day" :month="diaMes(s.fechaProbableParto).month" size="sm" bg="var(--color-bg)" />
         <div class="reproduccion-view__row-info">
           <div class="reproduccion-view__row-title">{{ s.animal.identificador }}</div>
@@ -265,7 +305,7 @@ async function guardar(confirmarDuplicado = false) {
     </div>
 
     <SectionCard v-if="!isMobile" title="Vacas preñadas">
-      <div v-if="!loading && calendario.length === 0" class="reproduccion-view__muted">
+      <div v-if="!loading && calendario.partosProximos.length === 0" class="reproduccion-view__muted">
         Todavía no hay preñeces confirmadas.
       </div>
       <template v-else>
@@ -273,7 +313,7 @@ async function guardar(confirmarDuplicado = false) {
           <span>Bovino</span><span>Tipo de servicio</span><span>F. servicio</span
           ><span>F. probable parto</span><span>Estado</span>
         </div>
-        <div v-for="s in calendario" :key="s.id" class="reproduccion-view__table-row">
+        <div v-for="s in calendario.partosProximos" :key="s.id" class="reproduccion-view__table-row">
           <span class="reproduccion-view__bold">{{ s.animal.identificador }}</span>
           <span>{{ s.tipo === 'IA' ? 'Inseminación artificial' : s.tipo === 'TE' ? 'Transferencia embrionaria' : 'Servicio natural' }}</span>
           <span class="reproduccion-view__muted">{{ formatFecha(s.fecha) }}</span>
@@ -285,10 +325,10 @@ async function guardar(confirmarDuplicado = false) {
 
     <div v-else class="reproduccion-view__section">
       <div class="reproduccion-view__heading">Vacas preñadas</div>
-      <div v-if="!loading && calendario.length === 0" class="reproduccion-view__muted">
+      <div v-if="!loading && calendario.partosProximos.length === 0" class="reproduccion-view__muted">
         Todavía no hay preñeces confirmadas.
       </div>
-      <div v-for="s in calendario" :key="s.id" class="reproduccion-view__pregnant-card">
+      <div v-for="s in calendario.partosProximos" :key="s.id" class="reproduccion-view__pregnant-card">
         <div class="reproduccion-view__row-top">
           <span class="reproduccion-view__bold">{{ s.animal.identificador }}</span>
           <Pill bg="var(--color-warn-bg)" color="var(--color-warn)">Confirmada</Pill>
@@ -298,6 +338,38 @@ async function guardar(confirmarDuplicado = false) {
           · Parto: {{ formatFecha(s.fechaProbableParto) }}
         </div>
       </div>
+    </div>
+
+    <div class="reproduccion-view__top" :class="{ 'reproduccion-view__top--mobile': isMobile }">
+      <SectionCard title="Celos esperados">
+        <div v-if="!loading && calendario.celosEsperados.length === 0" class="reproduccion-view__muted">
+          No hay celos esperados en los próximos días.
+        </div>
+        <div v-for="c in calendario.celosEsperados" :key="c.id" class="reproduccion-view__row">
+          <DayBadge :day="diaMes(c.fechaEsperada).day" :month="diaMes(c.fechaEsperada).month" />
+          <div class="reproduccion-view__row-info">
+            <div class="reproduccion-view__row-title">{{ c.animal.identificador }}</div>
+          </div>
+          <Pill
+            :bg="c.vencido ? 'var(--color-warn-bg)' : 'var(--color-neutral-bg)'"
+            :color="c.vencido ? 'var(--color-warn)' : 'var(--color-primary)'"
+          >
+            {{ c.vencido ? 'Vencido' : 'Próximo' }}
+          </Pill>
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Destetes sugeridos">
+        <div v-if="!loading && calendario.destetesSugeridos.length === 0" class="reproduccion-view__muted">
+          No hay crías que superen la edad de destete todavía.
+        </div>
+        <div v-for="d in calendario.destetesSugeridos" :key="d.id" class="reproduccion-view__row">
+          <div class="reproduccion-view__row-info">
+            <div class="reproduccion-view__row-title">{{ d.identificador }}</div>
+            <div class="reproduccion-view__row-detail">{{ d.edadDias }} días</div>
+          </div>
+        </div>
+      </SectionCard>
     </div>
 
     <SectionCard v-if="!isMobile" title="Historial de servicios registrados">

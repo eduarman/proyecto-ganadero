@@ -48,6 +48,61 @@ export interface CrearPartoPayload {
   criaSexo?: 'MACHO' | 'HEMBRA';
 }
 
+export interface Celo {
+  id: string;
+  tenantId: string;
+  animalId: string;
+  fecha: string;
+  observaciones: string | null;
+  animal: Animal;
+}
+
+export interface CrearCeloPayload {
+  animalId: string;
+  fecha: string;
+  observaciones?: string;
+}
+
+export interface Destete {
+  id: string;
+  tenantId: string;
+  animalId: string;
+  fecha: string;
+  pesoDestete: string | null;
+  animal: Animal;
+}
+
+export interface CrearDestetePayload {
+  animalId: string;
+  fecha: string;
+  pesoDestete?: number;
+}
+
+export interface DiagnosticoPendiente extends Servicio {
+  vencido: boolean;
+}
+
+export interface CeloEsperado {
+  id: string;
+  animal: { id: string; identificador: string };
+  fechaEsperada: string;
+  vencido: boolean;
+}
+
+export interface DesteteSugerido {
+  id: string;
+  identificador: string;
+  fechaNacimiento: string;
+  edadDias: number;
+}
+
+export interface CalendarioReproductivo {
+  partosProximos: Servicio[];
+  diagnosticosPendientes: DiagnosticoPendiente[];
+  celosEsperados: CeloEsperado[];
+  destetesSugeridos: DesteteSugerido[];
+}
+
 export const reproduccionApi = {
   crearServicio(payload: CrearServicioPayload) {
     return http.post<Servicio>('/reproduccion/servicios', payload).then((r) => r.data);
@@ -58,8 +113,14 @@ export const reproduccionApi = {
   crearParto(payload: CrearPartoPayload) {
     return http.post('/reproduccion/partos', payload);
   },
+  crearCelo(payload: CrearCeloPayload) {
+    return http.post<Celo>('/reproduccion/celos', payload).then((r) => r.data);
+  },
+  crearDestete(payload: CrearDestetePayload) {
+    return http.post<Destete>('/reproduccion/destetes', payload).then((r) => r.data);
+  },
   calendario() {
-    return http.get<Servicio[]>('/reproduccion/calendario').then((r) => r.data);
+    return http.get<CalendarioReproductivo>('/reproduccion/calendario').then((r) => r.data);
   },
   pendientesDiagnostico() {
     return http.get<Servicio[]>('/reproduccion/servicios/pendientes').then((r) => r.data);

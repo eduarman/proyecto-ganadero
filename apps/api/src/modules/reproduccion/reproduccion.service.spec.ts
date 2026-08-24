@@ -3,15 +3,21 @@ import { ReproduccionService } from './reproduccion.service';
 
 function buildDeps() {
   const prisma = {
-    animal: { findFirst: jest.fn() },
+    animal: { findFirst: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
     servicio: {
       findFirst: jest.fn(),
-      findMany: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
       create: jest.fn(),
       update: jest.fn(),
     },
     diagnosticoGestacion: { create: jest.fn() },
     parto: { create: jest.fn() },
+    celo: { create: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
+    destete: {
+      create: jest.fn(),
+      findUnique: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
     $transaction: jest.fn(),
   };
 
@@ -225,5 +231,136 @@ describe('ReproduccionService.listarServicios', () => {
     expect(prisma.servicio.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { tenantId: TENANT_A } }),
     );
+  });
+});
+
+describe('ReproduccionService.crearCelo', () => {
+  const dto = { animalId: 'animal-1', fecha: '2026-01-01' };
+
+  it('lanza 404 si el animal no existe en el tenant', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.animal.findFirst.mockResolvedValue(null);
+
+    await expect(service.crearCelo(TENANT_A, dto)).rejects.toThrow(NotFoundException);
+  });
+
+  it('rechaza si el animal es macho', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.animal.findFirst.mockResolvedValue({ ...HEMBRA, sexo: 'MACHO' });
+
+    await expect(service.crearCelo(TENANT_A, dto)).rejects.toThrow(BadRequestException);
+  });
+
+  it('crea el celo cuando el animal es una hembra válida', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.animal.findFirst.mockResolvedValue(HEMBRA);
+    prisma.celo.create.mockResolvedValue({ id: 'celo-1' });
+
+    await service.crearCelo(TENANT_A, dto);
+
+    expect(prisma.celo.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ animalId: 'animal-1' }) }),
+    );
+  });
+});
+
+describe('ReproduccionService.crearDestete', () => {
+  const dto = { animalId: 'animal-1', fecha: '2026-01-01' };
+
+  it('lanza 404 si el animal no existe en el tenant', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.animal.findFirst.mockResolvedValue(null);
+
+    await expect(service.crearDestete(TENANT_A, dto)).rejects.toThrow(NotFoundException);
+  });
+
+  it('rechaza con 409 si el animal ya tiene un destete registrado', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.animal.findFirst.mockResolvedValue(HEMBRA);
+    prisma.destete.findUnique.mockResolvedValue({ id: 'destete-1' });
+
+    await expect(service.crearDestete(TENANT_A, dto)).rejects.toThrow(ConflictException);
+    expect(prisma.destete.create).not.toHaveBeenCalled();
+  });
+
+  it('crea el destete cuando no hay uno previo', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.animal.findFirst.mockResolvedValue(HEMBRA);
+    prisma.destete.findUnique.mockResolvedValue(null);
+    prisma.destete.create.mockResolvedValue({ id: 'destete-1' });
+
+    await service.crearDestete(TENANT_A, { ...dto, pesoDestete: 120 });
+
+    expect(prisma.destete.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ animalId: 'animal-1', pesoDestete: 120 }) }),
+    );
+  });
+});
+
+describe('ReproduccionService.calendario', () => {
+  function mockServicioFindMany(prisma: any, opts: { pendientes?: any[]; porAnimal?: any[] } = {}) {
+    prisma.servicio.findMany.mockImplementation(({ where }: any) => {
+      if (where.estado === 'CONFIRMADO_PRENADA') return Promise.resolve([]);
+      if (where.estado === 'PENDIENTE_DIAGNOSTICO') return Promise.resolve(opts.pendientes ?? []);
+      if (where.animalId) return Promise.resolve(opts.porAnimal ?? []);
+      return Promise.resolve([]);
+    });
+  }
+
+  it('incluye un celo esperado cuando no hubo servicio posterior a ese celo', async () => {
+    const { service, prisma } = buildDeps();
+    mockServicioFindMany(prisma, { porAnimal: [] });
+    const haceVeintidosDias = new Date(Date.now() - 22 * 24 * 60 * 60 * 1000);
+    prisma.celo.findMany.mockResolvedValue([
+      { id: 'celo-1', animalId: 'animal-1', fecha: haceVeintidosDias, animal: { id: 'animal-1', identificador: '001' } },
+    ]);
+
+    const resultado = await service.calendario(TENANT_A);
+
+    expect(resultado.celosEsperados).toHaveLength(1);
+    expect(resultado.celosEsperados[0]).toMatchObject({ animal: { identificador: '001' }, vencido: true });
+  });
+
+  it('no incluye el celo esperado si hubo un servicio posterior a ese celo', async () => {
+    const { service, prisma } = buildDeps();
+    const haceVeintidosDias = new Date(Date.now() - 22 * 24 * 60 * 60 * 1000);
+    const haceDiezDias = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000);
+    mockServicioFindMany(prisma, { porAnimal: [{ animalId: 'animal-1', fecha: haceDiezDias }] });
+    prisma.celo.findMany.mockResolvedValue([
+      { id: 'celo-1', animalId: 'animal-1', fecha: haceVeintidosDias, animal: { id: 'animal-1', identificador: '001' } },
+    ]);
+
+    const resultado = await service.calendario(TENANT_A);
+
+    expect(resultado.celosEsperados).toHaveLength(0);
+  });
+
+  it('sugiere destete para animales que superan la edad configurada sin destete registrado', async () => {
+    const { service, prisma } = buildDeps();
+    mockServicioFindMany(prisma);
+    const nacimientoViejo = new Date(Date.now() - 300 * 24 * 60 * 60 * 1000);
+    const nacimientoReciente = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    prisma.animal.findMany.mockResolvedValue([
+      { id: 'animal-1', identificador: '001', fechaNacimiento: nacimientoViejo },
+      { id: 'animal-2', identificador: '002', fechaNacimiento: nacimientoReciente },
+    ]);
+    prisma.destete.findMany.mockResolvedValue([]);
+
+    const resultado = await service.calendario(TENANT_A);
+
+    expect(resultado.destetesSugeridos).toHaveLength(1);
+    expect(resultado.destetesSugeridos[0]).toMatchObject({ identificador: '001' });
+  });
+
+  it('marca vencido=true en un diagnóstico pendiente cuya fecha estimada ya pasó', async () => {
+    const { service, prisma } = buildDeps();
+    const ayer = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    mockServicioFindMany(prisma, {
+      pendientes: [{ id: 's1', fechaEstimadaDiagnostico: ayer, animal: { identificador: '001' } }],
+    });
+
+    const resultado = await service.calendario(TENANT_A);
+
+    expect(resultado.diagnosticosPendientes[0]).toMatchObject({ vencido: true });
   });
 });

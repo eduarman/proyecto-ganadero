@@ -14,7 +14,7 @@ const MAX_RANKING = 5;
 
 export type Urgencia = 'alta' | 'media';
 
-export type TipoAlerta = 'Sanidad' | 'Diagnóstico' | 'Parto';
+export type TipoAlerta = 'Sanidad' | 'Diagnóstico' | 'Parto' | 'Celo' | 'Destete';
 
 export interface Alerta {
   tag: TipoAlerta;
@@ -108,11 +108,11 @@ export class DashboardService {
   }
 
   private async alertasConsolidadas(tenantId: string): Promise<{ items: Alerta[]; alertasSanitariasActivas: number }> {
-    const [sanitarias, pendientesDiagnostico, partosProximos] = await Promise.all([
+    const [sanitarias, calendarioReproductivo] = await Promise.all([
       this.sanidadService.alertas(tenantId),
-      this.reproduccionService.pendientesDiagnostico(tenantId),
       this.reproduccionService.calendario(tenantId),
     ]);
+    const { partosProximos, diagnosticosPendientes, celosEsperados, destetesSugeridos } = calendarioReproductivo;
 
     const alertas: Alerta[] = [];
 
@@ -128,13 +128,14 @@ export class DashboardService {
       });
     }
 
-    for (const s of pendientesDiagnostico) {
+    for (const s of diagnosticosPendientes) {
       alertas.push({
         tag: 'Diagnóstico',
         title: `Diagnóstico pendiente — ${s.animal.identificador}`,
-        urgencia: s.fechaEstimadaDiagnostico <= new Date(Date.now() + DIAS_URGENCIA_ALTA * 24 * 60 * 60 * 1000) ? 'alta' : 'media',
+        urgencia: s.vencido ? 'alta' : 'media',
         linkTo: '/reproduccion',
         fecha: s.fechaEstimadaDiagnostico.toISOString(),
+        vencido: s.vencido,
       });
     }
 
@@ -145,6 +146,27 @@ export class DashboardService {
         urgencia: s.fechaProbableParto <= new Date(Date.now() + DIAS_URGENCIA_ALTA * 24 * 60 * 60 * 1000) ? 'alta' : 'media',
         linkTo: '/reproduccion',
         fecha: s.fechaProbableParto.toISOString(),
+      });
+    }
+
+    for (const c of celosEsperados) {
+      alertas.push({
+        tag: 'Celo',
+        title: `Celo esperado — ${c.animal.identificador}`,
+        urgencia: c.vencido ? 'alta' : 'media',
+        linkTo: '/reproduccion',
+        fecha: c.fechaEsperada.toISOString(),
+        vencido: c.vencido,
+      });
+    }
+
+    for (const d of destetesSugeridos) {
+      alertas.push({
+        tag: 'Destete',
+        title: `Destete sugerido — ${d.identificador}`,
+        urgencia: 'media',
+        linkTo: '/reproduccion',
+        fecha: new Date().toISOString(),
       });
     }
 
