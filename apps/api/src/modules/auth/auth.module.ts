@@ -39,5 +39,6 @@ import { JwtStrategy } from './strategies/jwt.strategy';
         config.resendApiKey && config.emailFrom ? new ResendEmailSender(config) : new ConsoleEmailSender(),
     },
   ],
+  exports: [EmailSender, PasswordService, RefreshTokenService],
 })
 export class AuthModule {}

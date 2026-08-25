@@ -1,4 +1,3 @@
-import { randomBytes, createHash } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
@@ -9,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { EstadoCuenta, RolUsuario, Usuario } from '@prisma/client';
+import { generateOpaqueToken, hashOpaqueToken } from '../../common/opaque-token.util';
 import { AppConfigService } from '../../config/app-config.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RegistroDto } from './dto/registro.dto';
@@ -38,15 +38,6 @@ type UsuarioConNegocios = Usuario & {
 type UsuarioConSoloNegocios = Usuario & {
   usuarioNegocios: UsuarioNegociosList;
 };
-
-function hashOpaqueToken(token: string): string {
-  return createHash('sha256').update(token).digest('hex');
-}
-
-function generateOpaqueToken(): { raw: string; hash: string } {
-  const raw = randomBytes(32).toString('hex');
-  return { raw, hash: hashOpaqueToken(raw) };
-}
 
 @Injectable()
 export class AuthService {
@@ -114,7 +105,7 @@ export class AuthService {
 
     const usuario = (await this.prisma.usuario.findUnique({
       where: { email },
-      include: { cuenta: true, usuarioNegocios: { include: { negocio: true } } },
+      include: { cuenta: true, usuarioNegocios: { where: { activo: true }, include: { negocio: true } } },
     })) as UsuarioConNegocios | null;
 
     if (!usuario) {
@@ -252,7 +243,7 @@ export class AuthService {
 
     const usuario = (await this.prisma.usuario.findUnique({
       where: { id: rotated.usuarioId },
-      include: { cuenta: true, usuarioNegocios: { include: { negocio: true } } },
+      include: { cuenta: true, usuarioNegocios: { where: { activo: true }, include: { negocio: true } } },
     })) as UsuarioConNegocios | null;
 
     if (!usuario) {
@@ -278,8 +269,8 @@ export class AuthService {
     usuarioId: string,
     negocioId: string,
   ): Promise<{ accessToken: string }> {
-    const membresia = await this.prisma.usuarioNegocio.findUnique({
-      where: { usuarioId_negocioId: { usuarioId, negocioId } },
+    const membresia = await this.prisma.usuarioNegocio.findFirst({
+      where: { usuarioId, negocioId, activo: true },
     });
     if (!membresia) {
       throw new ForbiddenException('No perteneces a ese negocio.');
@@ -316,7 +307,7 @@ export class AuthService {
   }> {
     const usuario = (await this.prisma.usuario.findUniqueOrThrow({
       where: { id: usuarioId },
-      include: { usuarioNegocios: { include: { negocio: true } } },
+      include: { usuarioNegocios: { where: { activo: true }, include: { negocio: true } } },
     })) as UsuarioConSoloNegocios;
 
     const negocios = usuario.usuarioNegocios.map((n) => ({

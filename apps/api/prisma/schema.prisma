@@ -70,6 +70,7 @@ model Negocio {
   cuenta                 Cuenta                 @relation(fields: [cuentaId], references: [id])
   usuarioNegocios        UsuarioNegocio[]
   ultimoDeUsuario        Usuario[]              @relation("UltimoNegocio")
+  invitaciones           Invitacion[]
   animales               Animal[]
   potreros               Potrero[]
   productosSanitarios    ProductoSanitario[]
@@ -122,6 +123,7 @@ model Usuario {
   suministrosRecurrentesCreados SuministroRecurrente[]
   reportesGenerados      ReporteGenerado[]
   movimientosRegistrados AnimalMovimiento[]
+  invitacionesEnviadas   Invitacion[]
 
   @@map("usuarios")
 }
@@ -139,6 +141,7 @@ model UsuarioNegocio {
   usuarioId String     @map("usuario_id")
   negocioId String     @map("negocio_id")
   rol       RolUsuario
+  activo    Boolean    @default(true)
   createdAt DateTime   @default(now()) @map("created_at")
 
   usuario Usuario @relation(fields: [usuarioId], references: [id])
@@ -146,6 +149,32 @@ model UsuarioNegocio {
 
   @@unique([usuarioId, negocioId])
   @@map("usuario_negocio")
+}
+
+enum EstadoInvitacion {
+  PENDIENTE
+  ACEPTADA
+  CANCELADA
+  EXPIRADA
+}
+
+model Invitacion {
+  id            String           @id @default(uuid())
+  email         String
+  negocioId     String           @map("negocio_id")
+  rol           RolUsuario
+  tokenHash     String           @unique @map("token_hash")
+  invitadoPorId String           @map("invitado_por")
+  estado        EstadoInvitacion @default(PENDIENTE)
+  expiraEn      DateTime         @map("expira_en")
+  aceptadaEn    DateTime?        @map("aceptada_en")
+  createdAt     DateTime         @default(now()) @map("created_at")
+
+  negocio     Negocio @relation(fields: [negocioId], references: [id])
+  invitadoPor Usuario @relation(fields: [invitadoPorId], references: [id])
+
+  @@index([negocioId])
+  @@map("invitaciones")
 }
 
 // ---------------------------------------------------------------------------

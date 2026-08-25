@@ -34,6 +34,17 @@ export interface RegistroPayload {
   password: string;
 }
 
+export interface Perfil {
+  id: string;
+  email: string;
+  nombre: string;
+}
+
+export interface CambiarPasswordPayload {
+  passwordActual: string;
+  passwordNueva: string;
+}
+
 export const authApi = {
   login(email: string, password: string) {
     return http.post<LoginResponse>('/auth/login', { email, password }).then((r) => r.data);
@@ -67,5 +78,14 @@ export const authApi = {
   },
   reenviarVerificacion(email: string) {
     return http.post<void>('/auth/reenviar-verificacion', { email });
+  },
+  obtenerPerfil() {
+    return http.get<Perfil>('/perfil').then((r) => r.data);
+  },
+  actualizarPerfil(nombre: string) {
+    return http.patch<Perfil>('/perfil', { nombre }).then((r) => r.data);
+  },
+  cambiarPassword(payload: CambiarPasswordPayload) {
+    return http.patch<void>('/perfil/password', payload);
   },
 };

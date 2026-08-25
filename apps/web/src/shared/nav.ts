@@ -16,6 +16,7 @@ export const SIDEBAR_NAV: NavItem[] = [
   { key: 'alimentacion', label: 'Alimentación', icon: 'wheat', path: '/alimentacion' },
   { key: 'potreros', label: 'Potreros', icon: 'map', path: '/potreros' },
   { key: 'reportes', label: 'Reportes', icon: 'bars', path: '/reportes' },
+  { key: 'usuarios', label: 'Usuarios', icon: 'users', path: '/usuarios' },
   { key: 'cuenta', label: 'Cuenta', icon: 'account', path: '/cuenta' },
 ];
 
@@ -47,6 +48,7 @@ export const MORE_NAV: NavItem[] = [
   },
   { key: 'potreros', label: 'Potreros', desc: 'Rotación y ocupación', icon: 'map', path: '/potreros' },
   { key: 'reportes', label: 'Reportes', desc: 'Indicadores del hato', icon: 'bars', path: '/reportes' },
+  { key: 'usuarios', label: 'Usuarios', desc: 'Equipo del negocio y roles', icon: 'users', path: '/usuarios' },
 ];
 
 // En móvil, "Más" también se considera activo para estos módulos (no tienen
@@ -57,3 +59,8 @@ export const MORE_KEYS = new Set(MORE_NAV.map((i) => i.key).concat('more'));
 // — el resto del shell no se le muestra ni se le permite navegar (guard en
 // router/index.ts). Ver .claude/steering/security-roles.md.
 export const NAV_KEYS_VETERINARIO = new Set(['sanidad', 'ganado', 'cuenta']);
+
+// "Usuarios" solo lo ve/administra ADMIN_NEGOCIO (matriz de permisos) — el
+// backend ya es la barrera real (@Roles(ADMIN_NEGOCIO) en usuarios.controller);
+// esto es solo para no mostrar la entrada de nav a quien no puede usarla.
+export const NAV_KEYS_ADMIN = new Set(['usuarios']);

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isAxiosError } from 'axios';
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useBreakpoint } from '../../../shared/composables/useBreakpoint';
@@ -23,6 +24,52 @@ async function logoutAll() {
   } finally {
     auth.clearSession();
     router.push('/login');
+  }
+}
+
+const nombre = ref(auth.usuario?.nombre ?? '');
+const savingNombre = ref(false);
+const nombreError = ref('');
+const nombreOk = ref(false);
+
+async function guardarNombre() {
+  nombreError.value = '';
+  nombreOk.value = false;
+  savingNombre.value = true;
+  try {
+    await authApi.actualizarPerfil(nombre.value);
+    auth.actualizarNombre(nombre.value);
+    nombreOk.value = true;
+  } catch (error) {
+    nombreError.value = isAxiosError(error)
+      ? (error.response?.data as { message?: string } | undefined)?.message ?? 'No se pudo guardar el nombre.'
+      : 'No se pudo guardar el nombre.';
+  } finally {
+    savingNombre.value = false;
+  }
+}
+
+const passwordActual = ref('');
+const passwordNueva = ref('');
+const savingPassword = ref(false);
+const passwordError = ref('');
+const passwordOk = ref(false);
+
+async function guardarPassword() {
+  passwordError.value = '';
+  passwordOk.value = false;
+  savingPassword.value = true;
+  try {
+    await authApi.cambiarPassword({ passwordActual: passwordActual.value, passwordNueva: passwordNueva.value });
+    passwordActual.value = '';
+    passwordNueva.value = '';
+    passwordOk.value = true;
+  } catch (error) {
+    passwordError.value = isAxiosError(error)
+      ? (error.response?.data as { message?: string } | undefined)?.message ?? 'No se pudo actualizar la contraseña.'
+      : 'No se pudo actualizar la contraseña.';
+  } finally {
+    savingPassword.value = false;
   }
 }
 </script>
@@ -52,36 +99,56 @@ async function logoutAll() {
       <div class="cuenta-view__settings">
         <div class="cuenta-view__card">
           <div class="cuenta-view__card-title">Información personal</div>
+          <div v-if="nombreError" class="cuenta-view__form-error">{{ nombreError }}</div>
+          <div v-if="nombreOk" class="cuenta-view__form-ok">Guardado.</div>
           <div class="cuenta-view__form-grid" :class="{ 'cuenta-view__form-grid--mobile': isMobile }">
             <div class="cuenta-view__field">
               <label v-if="!isMobile">Nombre completo</label>
-              <input :value="auth.user.name" />
+              <input v-model="nombre" />
             </div>
             <div class="cuenta-view__field">
               <label v-if="!isMobile">Correo electrónico</label>
-              <input :value="auth.usuario?.email" />
+              <input :value="auth.usuario?.email" disabled />
             </div>
             <div v-if="!isMobile" class="cuenta-view__field">
               <label>Rol</label>
               <input :value="auth.user.role" disabled />
             </div>
           </div>
-          <button type="button" class="cuenta-view__submit">Guardar cambios</button>
+          <button
+            type="button"
+            class="cuenta-view__submit"
+            :disabled="savingNombre || !nombre"
+            @click="guardarNombre"
+          >
+            {{ savingNombre ? 'Guardando…' : 'Guardar cambios' }}
+          </button>
         </div>
 
         <div v-if="!isMobile" class="cuenta-view__card">
           <div class="cuenta-view__card-title">Seguridad</div>
+          <div v-if="passwordError" class="cuenta-view__form-error">{{ passwordError }}</div>
+          <div v-if="passwordOk" class="cuenta-view__form-ok">
+            Contraseña actualizada. Se cerraron las demás sesiones.
+          </div>
           <div class="cuenta-view__form-grid">
             <div class="cuenta-view__field">
               <label>Contraseña actual</label>
-              <input type="password" placeholder="••••••••" />
+              <input v-model="passwordActual" type="password" placeholder="••••••••" />
             </div>
             <div class="cuenta-view__field">
               <label>Nueva contraseña</label>
-              <input type="password" placeholder="••••••••" />
+              <input v-model="passwordNueva" type="password" placeholder="••••••••" />
             </div>
           </div>
-          <button type="button" class="cuenta-view__btn-ghost">Actualizar contraseña</button>
+          <button
+            type="button"
+            class="cuenta-view__btn-ghost"
+            :disabled="savingPassword || !passwordActual || !passwordNueva"
+            @click="guardarPassword"
+          >
+            {{ savingPassword ? 'Actualizando…' : 'Actualizar contraseña' }}
+          </button>
         </div>
 
         <div class="cuenta-view__card cuenta-view__logout-card">
@@ -243,6 +310,24 @@ async function logoutAll() {
     font-size: 1rem;
   }
 
+  &__form-error {
+    background: var(--color-warn-bg);
+    color: var(--color-warn);
+    border-radius: 12px;
+    padding: 0.6rem 0.85rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+  }
+
+  &__form-ok {
+    background: var(--color-neutral-bg);
+    color: var(--color-primary);
+    border-radius: 12px;
+    padding: 0.6rem 0.85rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+  }
+
   &__form-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -287,6 +372,11 @@ async function logoutAll() {
     font-size: 0.82rem;
     cursor: pointer;
     font-family: inherit;
+
+    &:disabled {
+      opacity: 0.6;
+      cursor: progress;
+    }
   }
 
   &__btn-ghost {
@@ -300,6 +390,11 @@ async function logoutAll() {
     font-size: 0.8rem;
     cursor: pointer;
     font-family: inherit;
+
+    &:disabled {
+      opacity: 0.6;
+      cursor: progress;
+    }
   }
 
   &__logout-card {

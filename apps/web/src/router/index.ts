@@ -41,6 +41,11 @@ const router = createRouter({
       component: () => import('../modules/auth/views/VerificarEmailView.vue'),
     },
     {
+      path: '/invitaciones/:token',
+      name: 'aceptar-invitacion',
+      component: () => import('../modules/usuarios/views/AceptarInvitacionView.vue'),
+    },
+    {
       path: '/',
       component: ResponsiveShell,
       children: [
@@ -125,6 +130,16 @@ const router = createRouter({
           },
         },
         {
+          path: 'usuarios',
+          name: 'usuarios',
+          component: () => import('../modules/usuarios/views/ListaUsuariosView.vue'),
+          meta: {
+            navKey: 'usuarios',
+            title: 'Usuarios',
+            subtitle: 'Equipo del negocio y roles',
+          },
+        },
+        {
           path: 'cuenta',
           name: 'cuenta',
           component: () => import('../modules/cuenta/views/CuentaView.vue'),
@@ -164,12 +179,21 @@ const PUBLIC_AUTH_ROUTES = new Set([
   'verificar-email',
 ]);
 
+// Accesible siempre, con o sin sesión activa: quien acepta una invitación
+// puede ya estar logueado (usuario existente, US-2.3) — a diferencia de
+// PUBLIC_AUTH_ROUTES, acá no corresponde redirigir a /dashboard.
+const ALWAYS_PUBLIC_ROUTES = new Set(['aceptar-invitacion']);
+
 router.beforeEach(async (to) => {
   const auth = useAuthStore();
 
   if (!sessionRestoreAttempted) {
     sessionRestoreAttempted = true;
     await auth.restoreSession();
+  }
+
+  if (typeof to.name === 'string' && ALWAYS_PUBLIC_ROUTES.has(to.name)) {
+    return true;
   }
 
   const isPublicAuthRoute = typeof to.name === 'string' && PUBLIC_AUTH_ROUTES.has(to.name);

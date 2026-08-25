@@ -1,16 +1,23 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import { useRouter } from 'vue-router';
 import AppIcon from '../../../shared/components/AppIcon.vue';
-import { MORE_NAV } from '../../../shared/nav';
+import { MORE_NAV, NAV_KEYS_ADMIN } from '../../../shared/nav';
+import { useAuthStore } from '../../../stores/auth.store';
 
 const router = useRouter();
+const auth = useAuthStore();
+
+const items = computed(() =>
+  auth.rolActivo === 'ADMIN_NEGOCIO' ? MORE_NAV : MORE_NAV.filter((item) => !NAV_KEYS_ADMIN.has(item.key)),
+);
 </script>
 
 <template>
   <div class="more-view">
     <div class="more-view__heading">Más módulos</div>
     <button
-      v-for="item in MORE_NAV"
+      v-for="item in items"
       :key="item.key"
       type="button"
       class="more-view__item"

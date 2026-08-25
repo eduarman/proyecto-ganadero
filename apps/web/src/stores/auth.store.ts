@@ -59,6 +59,12 @@ export const useAuthStore = defineStore('auth', {
       this.isAuthenticated = true;
     },
 
+    actualizarNombre(nombre: string) {
+      if (this.usuario) {
+        this.usuario.nombre = nombre;
+      }
+    },
+
     clearSession() {
       this.isAuthenticated = false;
       this.accessToken = null;

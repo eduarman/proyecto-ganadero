@@ -2,18 +2,22 @@
 import { computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '../stores/auth.store';
-import { NAV_KEYS_VETERINARIO, SIDEBAR_NAV } from '../shared/nav';
+import { NAV_KEYS_ADMIN, NAV_KEYS_VETERINARIO, SIDEBAR_NAV } from '../shared/nav';
 import AppIcon from '../shared/components/AppIcon.vue';
 import TenantSwitcher from '../shared/components/TenantSwitcher.vue';
 
 const route = useRoute();
 const auth = useAuthStore();
 
-const navItems = computed(() =>
-  auth.rolActivo === 'VETERINARIO_EXTERNO'
-    ? SIDEBAR_NAV.filter((item) => NAV_KEYS_VETERINARIO.has(item.key))
-    : SIDEBAR_NAV,
-);
+const navItems = computed(() => {
+  if (auth.rolActivo === 'VETERINARIO_EXTERNO') {
+    return SIDEBAR_NAV.filter((item) => NAV_KEYS_VETERINARIO.has(item.key));
+  }
+  if (auth.rolActivo === 'ADMIN_NEGOCIO') {
+    return SIDEBAR_NAV;
+  }
+  return SIDEBAR_NAV.filter((item) => !NAV_KEYS_ADMIN.has(item.key));
+});
 </script>
 
 <template>
