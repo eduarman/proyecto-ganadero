@@ -89,6 +89,7 @@ model Negocio {
   planesAlimentacion     PlanAlimentacion[]
   planAsignaciones       PlanAsignacion[]
   suministros            Suministro[]
+  suministrosRecurrentes SuministroRecurrente[]
   reportesGenerados      ReporteGenerado[]
   animalMovimientos      AnimalMovimiento[]
 
@@ -118,6 +119,7 @@ model Usuario {
   registrosLecheTotal    RegistroLecheTotal[]
   registrosPeso          RegistroPeso[]
   suministrosRegistrados Suministro[]
+  suministrosRecurrentesCreados SuministroRecurrente[]
   reportesGenerados      ReporteGenerado[]
   movimientosRegistrados AnimalMovimiento[]
 
@@ -343,12 +345,13 @@ model Potrero {
   createdAt      DateTime      @default(now()) @map("created_at")
   updatedAt      DateTime      @updatedAt @map("updated_at")
 
-  negocio            Negocio            @relation(fields: [tenantId], references: [id])
-  animales           Animal[]
-  planAsignaciones   PlanAsignacion[]
-  suministros        Suministro[]
-  movimientosOrigen  AnimalMovimiento[] @relation("MovimientoOrigen")
-  movimientosDestino AnimalMovimiento[] @relation("MovimientoDestino")
+  negocio                Negocio                @relation(fields: [tenantId], references: [id])
+  animales               Animal[]
+  planAsignaciones       PlanAsignacion[]
+  suministros            Suministro[]
+  suministrosRecurrentes SuministroRecurrente[]
+  movimientosOrigen      AnimalMovimiento[]     @relation("MovimientoOrigen")
+  movimientosDestino     AnimalMovimiento[]     @relation("MovimientoDestino")
 
   @@unique([tenantId, nombre])
   @@map("potreros")
@@ -710,9 +713,10 @@ model InsumoAlimentacion {
   estado        EstadoInsumo @default(ACTIVO)
   createdAt     DateTime     @default(now()) @map("created_at")
 
-  negocio     Negocio                @relation(fields: [tenantId], references: [id])
-  planItems   PlanAlimentacionItem[]
-  suministros Suministro[]
+  negocio               Negocio                @relation(fields: [tenantId], references: [id])
+  planItems             PlanAlimentacionItem[]
+  suministros           Suministro[]
+  suministrosRecurrentes SuministroRecurrente[]
 
   @@unique([tenantId, nombre])
   @@map("insumos_alimentacion")
@@ -775,15 +779,47 @@ model Suministro {
   animalIds       String[] @map("animal_ids")
   cantidad        Decimal  @db.Decimal(10, 2)
   registradoPorId String   @map("registrado_por")
+  esRecurrente    Boolean  @default(false) @map("es_recurrente")
+  recurrenciaId   String?  @map("recurrencia_id")
   createdAt       DateTime @default(now()) @map("created_at")
 
-  negocio       Negocio            @relation(fields: [tenantId], references: [id])
-  insumo        InsumoAlimentacion @relation(fields: [insumoId], references: [id])
-  potrero       Potrero?           @relation(fields: [potreroId], references: [id])
-  registradoPor Usuario            @relation(fields: [registradoPorId], references: [id])
+  negocio       Negocio               @relation(fields: [tenantId], references: [id])
+  insumo        InsumoAlimentacion    @relation(fields: [insumoId], references: [id])
+  potrero       Potrero?              @relation(fields: [potreroId], references: [id])
+  registradoPor Usuario               @relation(fields: [registradoPorId], references: [id])
+  recurrencia   SuministroRecurrente? @relation(fields: [recurrenciaId], references: [id])
 
   @@index([tenantId, fecha])
   @@map("suministros")
+}
+
+enum FrecuenciaSuministro {
+  DIARIA
+  SEMANAL
+}
+
+model SuministroRecurrente {
+  id          String               @id @default(uuid())
+  tenantId    String               @map("tenant_id")
+  insumoId    String               @map("insumo_id")
+  potreroId   String?              @map("potrero_id")
+  animalIds   String[]             @map("animal_ids")
+  cantidad    Decimal              @db.Decimal(10, 2)
+  frecuencia  FrecuenciaSuministro
+  activo      Boolean              @default(true)
+  fechaInicio DateTime             @map("fecha_inicio")
+  fechaFin    DateTime?            @map("fecha_fin")
+  creadoPorId String               @map("creado_por")
+  createdAt   DateTime             @default(now()) @map("created_at")
+
+  negocio              Negocio            @relation(fields: [tenantId], references: [id])
+  insumo               InsumoAlimentacion @relation(fields: [insumoId], references: [id])
+  potrero              Potrero?           @relation(fields: [potreroId], references: [id])
+  creadoPor            Usuario            @relation(fields: [creadoPorId], references: [id])
+  suministrosGenerados Suministro[]
+
+  @@index([tenantId, activo])
+  @@map("suministros_recurrentes")
 }
 
 // ---------------------------------------------------------------------------

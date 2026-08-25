@@ -20,7 +20,13 @@ function buildDeps() {
     planAsignacion: { create: jest.fn() },
     potrero: { findFirst: jest.fn() },
     animal: { count: jest.fn() },
-    suministro: { create: jest.fn(), findMany: jest.fn() },
+    suministro: { create: jest.fn(), findMany: jest.fn().mockResolvedValue([]), createMany: jest.fn() },
+    suministroRecurrente: {
+      create: jest.fn(),
+      findFirst: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
+      update: jest.fn(),
+    },
     $transaction: jest.fn(),
   };
 
@@ -227,5 +233,125 @@ describe('AlimentacionService.costos', () => {
 
     expect(resultado.costoParcial).toBe(false);
     expect(resultado.costoTotalGeneral).toBe(8);
+  });
+});
+
+describe('AlimentacionService.crearSuministroRecurrente', () => {
+  const dto = {
+    insumoId: 'insumo-1',
+    potreroId: 'potrero-1',
+    cantidad: 5,
+    frecuencia: 'DIARIA' as const,
+    fechaInicio: '2026-01-01',
+  };
+
+  it('lanza 404 si el insumo no existe en el tenant', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.insumoAlimentacion.findFirst.mockResolvedValue(null);
+
+    await expect(service.crearSuministroRecurrente(TENANT_A, dto, 'usuario-1')).rejects.toThrow(NotFoundException);
+  });
+
+  it('crea la regla cuando el destino es válido', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.insumoAlimentacion.findFirst.mockResolvedValue({ id: 'insumo-1' });
+    prisma.potrero.findFirst.mockResolvedValue({ id: 'potrero-1' });
+    prisma.suministroRecurrente.create.mockResolvedValue({ id: 'regla-1' });
+
+    await service.crearSuministroRecurrente(TENANT_A, dto, 'usuario-1');
+
+    expect(prisma.suministroRecurrente.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ insumoId: 'insumo-1', potreroId: 'potrero-1', creadoPorId: 'usuario-1' }),
+      }),
+    );
+  });
+});
+
+describe('AlimentacionService.actualizarSuministroRecurrente', () => {
+  it('lanza 404 si la regla no existe en el tenant', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.suministroRecurrente.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.actualizarSuministroRecurrente(TENANT_A, 'regla-1', { activo: false }),
+    ).rejects.toThrow(NotFoundException);
+  });
+
+  it('cancela la regla (activo=false) sin generar ni tocar suministros', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.suministroRecurrente.findFirst.mockResolvedValue({ id: 'regla-1' });
+    prisma.suministroRecurrente.update.mockResolvedValue({ id: 'regla-1', activo: false });
+
+    await service.actualizarSuministroRecurrente(TENANT_A, 'regla-1', { activo: false });
+
+    expect(prisma.suministroRecurrente.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'regla-1' }, data: expect.objectContaining({ activo: false }) }),
+    );
+    expect(prisma.suministro.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('AlimentacionService — catch-up de suministros recurrentes (US-2.2)', () => {
+  it('genera las filas pendientes de una regla diaria activa que todavía no tienen suministro', async () => {
+    const { service, prisma } = buildDeps();
+    const hoy = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate()));
+    const haceDosDias = new Date(hoy.getTime() - 2 * 24 * 60 * 60 * 1000);
+    prisma.suministroRecurrente.findMany.mockResolvedValue([
+      {
+        id: 'regla-1',
+        frecuencia: 'DIARIA',
+        fechaInicio: haceDosDias,
+        insumoId: 'insumo-1',
+        potreroId: 'potrero-1',
+        animalIds: [],
+        cantidad: 5,
+        creadoPorId: 'usuario-1',
+      },
+    ]);
+    prisma.suministro.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+
+    await service.listarSuministros(TENANT_A);
+
+    expect(prisma.suministro.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.arrayContaining([
+          expect.objectContaining({ recurrenciaId: 'regla-1', esRecurrente: true, registradoPorId: 'usuario-1' }),
+        ]),
+      }),
+    );
+    const llamada = (prisma.suministro.createMany as jest.Mock).mock.calls[0][0];
+    expect(llamada.data).toHaveLength(3);
+  });
+
+  it('no genera nada cuando no hay reglas activas', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.suministroRecurrente.findMany.mockResolvedValue([]);
+
+    await service.listarSuministros(TENANT_A);
+
+    expect(prisma.suministro.createMany).not.toHaveBeenCalled();
+  });
+
+  it('no duplica una fecha que ya tiene un suministro generado para esa regla', async () => {
+    const { service, prisma } = buildDeps();
+    const hoy = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate()));
+    prisma.suministroRecurrente.findMany.mockResolvedValue([
+      {
+        id: 'regla-1',
+        frecuencia: 'DIARIA',
+        fechaInicio: hoy,
+        insumoId: 'insumo-1',
+        potreroId: 'potrero-1',
+        animalIds: [],
+        cantidad: 5,
+        creadoPorId: 'usuario-1',
+      },
+    ]);
+    prisma.suministro.findMany.mockResolvedValueOnce([{ fecha: hoy }]).mockResolvedValueOnce([]);
+
+    await service.listarSuministros(TENANT_A);
+
+    expect(prisma.suministro.createMany).not.toHaveBeenCalled();
   });
 });

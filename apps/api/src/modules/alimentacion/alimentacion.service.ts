@@ -1,14 +1,18 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ActualizarSuministroRecurrenteDto } from './dto/actualizar-suministro-recurrente.dto';
 import { CrearAsignacionDto } from './dto/crear-asignacion.dto';
 import { CrearInsumoDto } from './dto/crear-insumo.dto';
 import { CrearPlanDto } from './dto/crear-plan.dto';
+import { CrearSuministroRecurrenteDto } from './dto/crear-suministro-recurrente.dto';
 import { CrearSuministroDto } from './dto/crear-suministro.dto';
 
 interface Destino {
   potreroId?: string;
   animalIds?: string[];
 }
+
+const DIA_MS = 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class AlimentacionService {
@@ -180,7 +184,105 @@ export class AlimentacionService {
     });
   }
 
-  listarSuministros(tenantId: string) {
+  // US-2.2: sin job en background (no hay Redis/BullMQ en el proyecto) — se
+  // materializan las filas de `suministros` pendientes de las reglas activas
+  // hasta hoy en el momento de leer, en vez de un cron diario. El resultado
+  // persistido es el mismo (filas reales, editable/cancelable sin tocar el
+  // histórico ya generado), sin infraestructura nueva.
+  private async catchUpRecurrentes(tenantId: string): Promise<void> {
+    const ahora = new Date();
+    const hoy = new Date(Date.UTC(ahora.getUTCFullYear(), ahora.getUTCMonth(), ahora.getUTCDate()));
+
+    const reglas = await this.prisma.suministroRecurrente.findMany({
+      where: {
+        tenantId,
+        activo: true,
+        fechaInicio: { lte: hoy },
+        OR: [{ fechaFin: null }, { fechaFin: { gte: hoy } }],
+      },
+    });
+    if (reglas.length === 0) return;
+
+    for (const regla of reglas) {
+      const existentes = await this.prisma.suministro.findMany({
+        where: { tenantId, recurrenciaId: regla.id },
+        select: { fecha: true },
+      });
+      const fechasExistentes = new Set(existentes.map((s) => s.fecha.getTime()));
+
+      const pasoMs = regla.frecuencia === 'SEMANAL' ? 7 * DIA_MS : DIA_MS;
+      const pendientes: Date[] = [];
+      for (let t = regla.fechaInicio.getTime(); t <= hoy.getTime(); t += pasoMs) {
+        if (!fechasExistentes.has(t)) pendientes.push(new Date(t));
+      }
+      if (pendientes.length === 0) continue;
+
+      await this.prisma.suministro.createMany({
+        data: pendientes.map((fecha) => ({
+          tenantId,
+          fecha,
+          insumoId: regla.insumoId,
+          potreroId: regla.potreroId,
+          animalIds: regla.animalIds,
+          cantidad: regla.cantidad,
+          registradoPorId: regla.creadoPorId,
+          esRecurrente: true,
+          recurrenciaId: regla.id,
+        })),
+      });
+    }
+  }
+
+  async crearSuministroRecurrente(tenantId: string, dto: CrearSuministroRecurrenteDto, creadoPorId: string) {
+    const insumo = await this.obtenerInsumo(tenantId, dto.insumoId);
+    await this.validarDestino(tenantId, { potreroId: dto.potreroId, animalIds: dto.animalIds }, 1);
+
+    const regla = await this.prisma.suministroRecurrente.create({
+      data: {
+        tenantId,
+        insumoId: insumo.id,
+        potreroId: dto.potreroId,
+        animalIds: dto.animalIds ?? [],
+        cantidad: dto.cantidad,
+        frecuencia: dto.frecuencia,
+        fechaInicio: new Date(dto.fechaInicio),
+        fechaFin: dto.fechaFin ? new Date(dto.fechaFin) : undefined,
+        creadoPorId,
+      },
+      include: { insumo: true, potrero: true },
+    });
+
+    await this.catchUpRecurrentes(tenantId);
+    return regla;
+  }
+
+  async actualizarSuministroRecurrente(tenantId: string, id: string, dto: ActualizarSuministroRecurrenteDto) {
+    const regla = await this.prisma.suministroRecurrente.findFirst({ where: { id, tenantId } });
+    if (!regla) {
+      throw new NotFoundException('Regla de suministro recurrente no encontrada.');
+    }
+
+    return this.prisma.suministroRecurrente.update({
+      where: { id },
+      data: {
+        cantidad: dto.cantidad,
+        fechaFin: dto.fechaFin ? new Date(dto.fechaFin) : undefined,
+        activo: dto.activo,
+      },
+      include: { insumo: true, potrero: true },
+    });
+  }
+
+  listarSuministrosRecurrentes(tenantId: string) {
+    return this.prisma.suministroRecurrente.findMany({
+      where: { tenantId },
+      include: { insumo: true, potrero: true },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async listarSuministros(tenantId: string) {
+    await this.catchUpRecurrentes(tenantId);
     return this.prisma.suministro.findMany({
       where: { tenantId },
       include: { insumo: true, potrero: true },
@@ -190,6 +292,7 @@ export class AlimentacionService {
   }
 
   async costos(tenantId: string, desde?: Date, hasta?: Date, potreroId?: string) {
+    await this.catchUpRecurrentes(tenantId);
     const suministros = await this.prisma.suministro.findMany({
       where: {
         tenantId,

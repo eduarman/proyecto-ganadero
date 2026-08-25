@@ -4,6 +4,7 @@ export type EstadoInsumo = 'ACTIVO' | 'INACTIVO';
 export type TipoPlanAlimentacion = 'PASTOREO' | 'SUPLEMENTACION' | 'ESTABULADO' | 'MIXTO';
 export type UnidadTiempoPlan = 'DIA' | 'SEMANA';
 export type DestinoPlanItem = 'ANIMAL' | 'LOTE';
+export type FrecuenciaSuministro = 'DIARIA' | 'SEMANAL';
 
 export interface Insumo {
   id: string;
@@ -76,6 +77,38 @@ export interface CrearSuministroPayload {
   cantidad: number;
 }
 
+export interface SuministroRecurrente {
+  id: string;
+  tenantId: string;
+  insumoId: string;
+  potreroId: string | null;
+  animalIds: string[];
+  cantidad: string;
+  frecuencia: FrecuenciaSuministro;
+  activo: boolean;
+  fechaInicio: string;
+  fechaFin: string | null;
+  createdAt: string;
+  insumo: Insumo;
+  potrero: { id: string; nombre: string } | null;
+}
+
+export interface CrearSuministroRecurrentePayload {
+  insumoId: string;
+  potreroId?: string;
+  animalIds?: string[];
+  cantidad: number;
+  frecuencia: FrecuenciaSuministro;
+  fechaInicio: string;
+  fechaFin?: string;
+}
+
+export interface ActualizarSuministroRecurrentePayload {
+  cantidad?: number;
+  fechaFin?: string;
+  activo?: boolean;
+}
+
 export interface CostoPorInsumo {
   insumoId: string;
   nombre: string;
@@ -120,7 +153,18 @@ export const alimentacionApi = {
   crearSuministro(payload: CrearSuministroPayload) {
     return http.post<Suministro>('/alimentacion/suministros', payload).then((r) => r.data);
   },
-  costos() {
-    return http.get<Costos>('/alimentacion/costos').then((r) => r.data);
+  listarSuministrosRecurrentes() {
+    return http.get<SuministroRecurrente[]>('/alimentacion/suministros/recurrentes').then((r) => r.data);
+  },
+  crearSuministroRecurrente(payload: CrearSuministroRecurrentePayload) {
+    return http.post<SuministroRecurrente>('/alimentacion/suministros/recurrentes', payload).then((r) => r.data);
+  },
+  actualizarSuministroRecurrente(id: string, payload: ActualizarSuministroRecurrentePayload) {
+    return http
+      .patch<SuministroRecurrente>(`/alimentacion/suministros/recurrentes/${id}`, payload)
+      .then((r) => r.data);
+  },
+  costos(params: { desde?: string; hasta?: string; potreroId?: string } = {}) {
+    return http.get<Costos>('/alimentacion/costos', { params }).then((r) => r.data);
   },
 };

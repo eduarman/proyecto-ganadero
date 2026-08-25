@@ -11,9 +11,11 @@ import {
   type CostoPorInsumo,
   type Costos,
   type DestinoPlanItem,
+  type FrecuenciaSuministro,
   type Insumo,
   type Plan,
   type Suministro,
+  type SuministroRecurrente,
   type TipoPlanAlimentacion,
   type UnidadTiempoPlan,
 } from '../services/alimentacion.api';
@@ -33,6 +35,7 @@ const TIPO_PLAN_LABELS: Record<TipoPlanAlimentacion, string> = {
 };
 const UNIDAD_TIEMPO_LABELS: Record<UnidadTiempoPlan, string> = { DIA: 'por día', SEMANA: 'por semana' };
 const POR_LABELS: Record<DestinoPlanItem, string> = { ANIMAL: 'por animal', LOTE: 'por lote' };
+const FRECUENCIA_LABELS: Record<FrecuenciaSuministro, string> = { DIARIA: 'Diaria', SEMANAL: 'Semanal' };
 const BAR_COLORS = ['var(--color-dark)', 'var(--color-primary)', 'var(--color-accent)', 'var(--color-warn)'];
 
 function formatFecha(iso: string) {
@@ -48,10 +51,14 @@ const planes = ref<Plan[]>([]);
 const potreros = ref<Potrero[]>([]);
 const animales = ref<Animal[]>([]);
 const suministros = ref<Suministro[]>([]);
+const suministrosRecurrentes = ref<SuministroRecurrente[]>([]);
 const costos = ref<Costos | null>(null);
+const costosDesde = ref('');
+const costosHasta = ref('');
 
 const animalesById = computed(() => new Map(animales.value.map((a) => [a.id, a])));
 const insumosActivos = computed(() => insumos.value.filter((i) => i.estado === 'ACTIVO'));
+const recurrentesActivas = computed(() => suministrosRecurrentes.value.filter((r) => r.activo));
 
 function destinoLabel(s: Suministro): string {
   if (s.potrero) return s.potrero.nombre;
@@ -62,33 +69,46 @@ function costoSuministro(s: Suministro): string {
   const costoUnitario = s.insumo.costoUnitario !== null ? Number(s.insumo.costoUnitario) : null;
   return costoUnitario !== null ? formatMoneda(Number(s.cantidad) * costoUnitario) : '—';
 }
+function destinoRecurrenteLabel(r: SuministroRecurrente): string {
+  if (r.potrero) return r.potrero.nombre;
+  const animal = r.animalIds[0] ? animalesById.value.get(r.animalIds[0]) : undefined;
+  return animal?.identificador ?? '—';
+}
+
+async function cargarCostos() {
+  if (!canVerCostos.value) return;
+  try {
+    costos.value = await alimentacionApi.costos({
+      desde: costosDesde.value || undefined,
+      hasta: costosHasta.value || undefined,
+    });
+  } catch {
+    costos.value = null;
+  }
+}
 
 async function cargar() {
   loading.value = true;
   try {
-    const [insumosResp, planesResp, potrerosResp, animalesResp, suministrosResp] = await Promise.all([
+    const [insumosResp, planesResp, potrerosResp, animalesResp, suministrosResp, recurrentesResp] = await Promise.all([
       alimentacionApi.listarInsumos(),
       alimentacionApi.listarPlanes(),
       potrerosApi.listar(),
       ganadoApi.listar({ limit: 100 }),
       alimentacionApi.listarSuministros(),
+      alimentacionApi.listarSuministrosRecurrentes(),
     ]);
     insumos.value = insumosResp;
     planes.value = planesResp;
     potreros.value = potrerosResp;
     animales.value = animalesResp.data;
     suministros.value = suministrosResp;
+    suministrosRecurrentes.value = recurrentesResp;
   } finally {
     loading.value = false;
   }
 
-  if (canVerCostos.value) {
-    try {
-      costos.value = await alimentacionApi.costos();
-    } catch {
-      costos.value = null;
-    }
-  }
+  await cargarCostos();
 }
 
 onMounted(cargar);
@@ -132,6 +152,62 @@ async function guardar() {
   } finally {
     saving.value = false;
   }
+}
+
+// --- Suministros recurrentes (US-2.2) --------------------------------------
+
+const showRecurrenteForm = ref(false);
+const recurrenteForm = ref({
+  destino: '',
+  insumoId: '',
+  cantidad: '',
+  frecuencia: 'DIARIA' as FrecuenciaSuministro,
+  fechaInicio: new Date().toISOString().slice(0, 10),
+  fechaFin: '',
+});
+const savingRecurrente = ref(false);
+const recurrenteError = ref('');
+
+function resetRecurrenteForm() {
+  recurrenteForm.value = {
+    destino: '',
+    insumoId: '',
+    cantidad: '',
+    frecuencia: 'DIARIA',
+    fechaInicio: new Date().toISOString().slice(0, 10),
+    fechaFin: '',
+  };
+}
+
+async function guardarRecurrente() {
+  recurrenteError.value = '';
+  savingRecurrente.value = true;
+  try {
+    const [tipoDestino, destinoId] = recurrenteForm.value.destino.split(':');
+    await alimentacionApi.crearSuministroRecurrente({
+      insumoId: recurrenteForm.value.insumoId,
+      potreroId: tipoDestino === 'potrero' ? destinoId : undefined,
+      animalIds: tipoDestino === 'animal' ? [destinoId] : undefined,
+      cantidad: Number(recurrenteForm.value.cantidad),
+      frecuencia: recurrenteForm.value.frecuencia,
+      fechaInicio: recurrenteForm.value.fechaInicio,
+      fechaFin: recurrenteForm.value.fechaFin || undefined,
+    });
+    resetRecurrenteForm();
+    showRecurrenteForm.value = false;
+    await cargar();
+  } catch (error) {
+    recurrenteError.value = isAxiosError(error)
+      ? ((error.response?.data as { message?: string } | undefined)?.message ?? 'No se pudo guardar la regla.')
+      : 'No se pudo guardar la regla.';
+  } finally {
+    savingRecurrente.value = false;
+  }
+}
+
+async function cancelarRecurrente(regla: SuministroRecurrente) {
+  await alimentacionApi.actualizarSuministroRecurrente(regla.id, { activo: false });
+  await cargar();
 }
 
 // --- Insumos --------------------------------------------------------------
@@ -339,6 +415,16 @@ async function guardarAsignacion(planId: string) {
       </SectionCard>
 
       <SectionCard v-if="canVerCostos" :title="isMobile ? 'Costo por tipo' : 'Costo de alimentación por tipo'">
+        <div class="alimentacion-view__costos-filtros">
+          <div class="alimentacion-view__field">
+            <label>Desde</label>
+            <input v-model="costosDesde" type="date" @change="cargarCostos" />
+          </div>
+          <div class="alimentacion-view__field">
+            <label>Hasta</label>
+            <input v-model="costosHasta" type="date" @change="cargarCostos" />
+          </div>
+        </div>
         <div v-if="!loading && (!costos || costos.porTipo.length === 0)" class="alimentacion-view__muted">
           Todavía no hay consumo registrado.
         </div>
@@ -398,6 +484,78 @@ async function guardarAsignacion(planId: string) {
         <button type="button" class="alimentacion-view__link-btn" @click="alternarInsumo(i)">
           {{ i.estado === 'ACTIVO' ? 'Inactivar' : 'Reactivar' }}
         </button>
+      </div>
+    </SectionCard>
+
+    <SectionCard title="Suministros recurrentes">
+      <template #actions>
+        <button type="button" class="alimentacion-view__link-btn" @click="showRecurrenteForm = !showRecurrenteForm">
+          {{ showRecurrenteForm ? 'Cancelar' : '+ Nueva regla' }}
+        </button>
+      </template>
+
+      <div v-if="showRecurrenteForm" class="alimentacion-view__sub-form">
+        <div v-if="recurrenteError" class="alimentacion-view__error">{{ recurrenteError }}</div>
+        <div class="alimentacion-view__field">
+          <label>Destino</label>
+          <select v-model="recurrenteForm.destino">
+            <option value="" disabled>Seleccioná un potrero o un animal</option>
+            <optgroup label="Potreros">
+              <option v-for="p in potreros" :key="p.id" :value="`potrero:${p.id}`">{{ p.nombre }}</option>
+            </optgroup>
+            <optgroup label="Animales">
+              <option v-for="a in animales" :key="a.id" :value="`animal:${a.id}`">{{ a.identificador }}</option>
+            </optgroup>
+          </select>
+        </div>
+        <div class="alimentacion-view__form-grid" :class="{ 'alimentacion-view__form-grid--mobile': isMobile }">
+          <div class="alimentacion-view__field">
+            <label>Alimento</label>
+            <select v-model="recurrenteForm.insumoId">
+              <option value="" disabled>Seleccioná un insumo</option>
+              <option v-for="i in insumosActivos" :key="i.id" :value="i.id">{{ i.nombre }}</option>
+            </select>
+          </div>
+          <div class="alimentacion-view__field">
+            <label>Cantidad</label>
+            <input v-model="recurrenteForm.cantidad" type="number" min="0" step="0.1" placeholder="5" />
+          </div>
+          <div class="alimentacion-view__field">
+            <label>Frecuencia</label>
+            <select v-model="recurrenteForm.frecuencia">
+              <option v-for="(label, valor) in FRECUENCIA_LABELS" :key="valor" :value="valor">{{ label }}</option>
+            </select>
+          </div>
+          <div class="alimentacion-view__field">
+            <label>Fecha inicio</label>
+            <input v-model="recurrenteForm.fechaInicio" type="date" />
+          </div>
+          <div class="alimentacion-view__field">
+            <label>Fecha fin (opcional)</label>
+            <input v-model="recurrenteForm.fechaFin" type="date" />
+          </div>
+        </div>
+        <button
+          type="button"
+          class="alimentacion-view__submit alimentacion-view__submit--sm"
+          :disabled="savingRecurrente || !recurrenteForm.destino || !recurrenteForm.insumoId || !recurrenteForm.cantidad"
+          @click="guardarRecurrente"
+        >
+          {{ savingRecurrente ? 'Guardando…' : 'Guardar regla' }}
+        </button>
+      </div>
+
+      <div v-if="!loading && recurrentesActivas.length === 0" class="alimentacion-view__muted">
+        Todavía no hay reglas de suministro recurrente activas.
+      </div>
+      <div v-for="r in recurrentesActivas" :key="r.id" class="alimentacion-view__insumo-row">
+        <div>
+          <span class="alimentacion-view__bold">{{ destinoRecurrenteLabel(r) }}</span>
+          <span class="alimentacion-view__muted">
+            · {{ r.insumo.nombre }} · {{ r.cantidad }}{{ r.insumo.unidadMedida }} · {{ FRECUENCIA_LABELS[r.frecuencia] }}
+          </span>
+        </div>
+        <button type="button" class="alimentacion-view__link-btn" @click="cancelarRecurrente(r)">Cancelar</button>
       </div>
     </SectionCard>
 
@@ -681,6 +839,17 @@ async function guardarAsignacion(planId: string) {
     &--mobile {
       grid-template-columns: 1fr;
       gap: 0.6rem;
+    }
+  }
+
+  &__costos-filtros {
+    display: flex;
+    gap: 0.6rem;
+    margin-bottom: 0.6rem;
+
+    .alimentacion-view__field {
+      flex: 1;
+      margin-bottom: 0;
     }
   }
 

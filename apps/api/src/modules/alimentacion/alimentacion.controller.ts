@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { RolUsuario } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -7,12 +7,16 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { JwtPayload } from '../auth/jwt-payload.interface';
 import { AlimentacionService } from './alimentacion.service';
+import { ActualizarSuministroRecurrenteDto } from './dto/actualizar-suministro-recurrente.dto';
 import { CrearAsignacionDto } from './dto/crear-asignacion.dto';
 import { CrearInsumoDto } from './dto/crear-insumo.dto';
 import { CrearPlanDto } from './dto/crear-plan.dto';
+import { CrearSuministroRecurrenteDto } from './dto/crear-suministro-recurrente.dto';
 import { CrearSuministroDto } from './dto/crear-suministro.dto';
+import { ListarCostosQueryDto } from './dto/listar-costos-query.dto';
 
 const ROLES_GESTION = [RolUsuario.ADMIN_NEGOCIO, RolUsuario.MAYORDOMO] as const;
+const ROLES_REGISTRO = [RolUsuario.ADMIN_NEGOCIO, RolUsuario.MAYORDOMO, RolUsuario.OPERARIO] as const;
 
 @Controller('alimentacion')
 @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
@@ -65,14 +69,40 @@ export class AlimentacionController {
   }
 
   @Post('suministros')
-  @Roles(RolUsuario.ADMIN_NEGOCIO, RolUsuario.MAYORDOMO, RolUsuario.OPERARIO)
+  @Roles(...ROLES_REGISTRO)
   crearSuministro(@CurrentUser() user: JwtPayload, @Body() dto: CrearSuministroDto) {
     return this.alimentacionService.crearSuministro(user.tenantId as string, dto, user.sub);
   }
 
+  @Post('suministros/recurrentes')
+  @Roles(...ROLES_REGISTRO)
+  crearSuministroRecurrente(@CurrentUser() user: JwtPayload, @Body() dto: CrearSuministroRecurrenteDto) {
+    return this.alimentacionService.crearSuministroRecurrente(user.tenantId as string, dto, user.sub);
+  }
+
+  @Get('suministros/recurrentes')
+  listarSuministrosRecurrentes(@CurrentUser() user: JwtPayload) {
+    return this.alimentacionService.listarSuministrosRecurrentes(user.tenantId as string);
+  }
+
+  @Patch('suministros/recurrentes/:id')
+  @Roles(...ROLES_GESTION)
+  actualizarSuministroRecurrente(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() dto: ActualizarSuministroRecurrenteDto,
+  ) {
+    return this.alimentacionService.actualizarSuministroRecurrente(user.tenantId as string, id, dto);
+  }
+
   @Get('costos')
   @Roles(...ROLES_GESTION)
-  costos(@CurrentUser() user: JwtPayload) {
-    return this.alimentacionService.costos(user.tenantId as string);
+  costos(@CurrentUser() user: JwtPayload, @Query() query: ListarCostosQueryDto) {
+    return this.alimentacionService.costos(
+      user.tenantId as string,
+      query.desde ? new Date(query.desde) : undefined,
+      query.hasta ? new Date(query.hasta) : undefined,
+      query.potreroId,
+    );
   }
 }
