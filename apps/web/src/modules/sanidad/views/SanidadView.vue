@@ -96,6 +96,8 @@ function irAPagina(p: number) {
 
 onMounted(cargar);
 
+const animalesActivos = computed(() => animales.value.filter((a) => a.estado === 'ACTIVO'));
+
 const form = ref({
   animalId: '',
   productoId: '',
@@ -394,7 +396,7 @@ async function finalizarCuarentena(cuarentena: Cuarentena) {
             <label>Bovino</label>
             <select v-model="form.animalId">
               <option value="" disabled>Seleccioná un animal</option>
-              <option v-for="a in animales" :key="a.id" :value="a.id">{{ a.identificador }}</option>
+              <option v-for="a in animalesActivos" :key="a.id" :value="a.id">{{ a.identificador }}</option>
             </select>
           </div>
           <div class="sanidad-view__field">
@@ -465,7 +467,7 @@ async function finalizarCuarentena(cuarentena: Cuarentena) {
         <button
           type="button"
           class="sanidad-view__submit"
-          :disabled="saving || !form.animalId || !form.productoId"
+          :disabled="saving || !form.animalId || !form.productoId || !form.dosisAplicada"
           @click="guardar"
         >
           {{ saving ? 'Guardando…' : 'Guardar registro sanitario' }}
@@ -514,7 +516,7 @@ async function finalizarCuarentena(cuarentena: Cuarentena) {
           <button
             type="button"
             class="sanidad-view__submit sanidad-view__submit--sm"
-            :disabled="savingLote || !loteForm.productoId"
+            :disabled="savingLote || !loteForm.productoId || !loteForm.dosisAplicada"
             @click="guardarLoteAplicacion"
           >
             {{ savingLote ? 'Guardando…' : `Aplicar a ${loteSeleccionados.size} animal(es)` }}
@@ -713,7 +715,7 @@ async function finalizarCuarentena(cuarentena: Cuarentena) {
             <label>Bovino</label>
             <select v-model="diagnosticoForm.animalId">
               <option value="" disabled>Seleccioná un animal</option>
-              <option v-for="a in animales" :key="a.id" :value="a.id">{{ a.identificador }}</option>
+              <option v-for="a in animalesActivos" :key="a.id" :value="a.id">{{ a.identificador }}</option>
             </select>
           </div>
           <div class="sanidad-view__field">
@@ -757,7 +759,7 @@ async function finalizarCuarentena(cuarentena: Cuarentena) {
             <label>Bovino</label>
             <select v-model="cuarentenaForm.animalId">
               <option value="" disabled>Seleccioná un animal</option>
-              <option v-for="a in animales" :key="a.id" :value="a.id">{{ a.identificador }}</option>
+              <option v-for="a in animalesActivos" :key="a.id" :value="a.id">{{ a.identificador }}</option>
             </select>
           </div>
           <div class="sanidad-view__field">

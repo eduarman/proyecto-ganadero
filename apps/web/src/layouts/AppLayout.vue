@@ -1,12 +1,19 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '../stores/auth.store';
-import { SIDEBAR_NAV } from '../shared/nav';
+import { NAV_KEYS_VETERINARIO, SIDEBAR_NAV } from '../shared/nav';
 import AppIcon from '../shared/components/AppIcon.vue';
 import TenantSwitcher from '../shared/components/TenantSwitcher.vue';
 
 const route = useRoute();
 const auth = useAuthStore();
+
+const navItems = computed(() =>
+  auth.rolActivo === 'VETERINARIO_EXTERNO'
+    ? SIDEBAR_NAV.filter((item) => NAV_KEYS_VETERINARIO.has(item.key))
+    : SIDEBAR_NAV,
+);
 </script>
 
 <template>
@@ -24,7 +31,7 @@ const auth = useAuthStore();
 
       <nav class="app-layout__nav">
         <RouterLink
-          v-for="item in SIDEBAR_NAV"
+          v-for="item in navItems"
           :key="item.key"
           :to="item.path"
           class="app-layout__nav-item"

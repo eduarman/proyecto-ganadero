@@ -52,3 +52,8 @@ export const MORE_NAV: NavItem[] = [
 // En móvil, "Más" también se considera activo para estos módulos (no tienen
 // slot propio en la bottom-nav), igual que en App Web.dc.html.
 export const MORE_KEYS = new Set(MORE_NAV.map((i) => i.key).concat('more'));
+
+// VETERINARIO_EXTERNO solo tiene Sanidad (RW), Ganado (solo lectura) y Cuenta
+// — el resto del shell no se le muestra ni se le permite navegar (guard en
+// router/index.ts). Ver .claude/steering/security-roles.md.
+export const NAV_KEYS_VETERINARIO = new Set(['sanidad', 'ganado', 'cuenta']);

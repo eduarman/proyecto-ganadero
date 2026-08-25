@@ -266,12 +266,21 @@ describe('GanadoService.moverAnimales', () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
+  it('rechaza mover animales dados de baja', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.potrero.findFirst.mockResolvedValue({ id: 'potrero-2', estado: 'ACTIVO' });
+    prisma.animal.findMany.mockResolvedValue([{ id: 'animal-1', estado: 'INACTIVO' }]);
+
+    await expect(service.moverAnimales(TENANT_A, dto, 'usuario-1')).rejects.toThrow(BadRequestException);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
   it('crea un movimiento por animal con el potrero de origen correcto y actualiza su potrero actual', async () => {
     const { service, prisma, potrerosService } = buildDeps();
     prisma.potrero.findFirst.mockResolvedValue({ id: 'potrero-2', estado: 'ACTIVO' });
     prisma.animal.findMany.mockResolvedValue([
-      { id: 'animal-1', potreroActualId: 'potrero-1' },
-      { id: 'animal-2', potreroActualId: null },
+      { id: 'animal-1', potreroActualId: 'potrero-1', estado: 'ACTIVO' },
+      { id: 'animal-2', potreroActualId: null, estado: 'ACTIVO' },
     ]);
     potrerosService.validarCapacidad.mockResolvedValue({ excede: false });
     prisma.$transaction.mockImplementation((ops: any[]) => Promise.all(ops));
@@ -300,7 +309,7 @@ describe('GanadoService.moverAnimales', () => {
   it('rechaza con 409 POTRERO_SOBRECARGADO si el destino excede su capacidad (US-2.2)', async () => {
     const { service, prisma, potrerosService } = buildDeps();
     prisma.potrero.findFirst.mockResolvedValue({ id: 'potrero-2', estado: 'ACTIVO' });
-    prisma.animal.findMany.mockResolvedValue([{ id: 'animal-1', potreroActualId: 'potrero-1' }]);
+    prisma.animal.findMany.mockResolvedValue([{ id: 'animal-1', potreroActualId: 'potrero-1', estado: 'ACTIVO' }]);
     potrerosService.validarCapacidad.mockResolvedValue({
       excede: true,
       ocupacionActual: 10,
@@ -315,7 +324,7 @@ describe('GanadoService.moverAnimales', () => {
   it('permite mover igual con confirmarSobrecapacidad, sin volver a chequear la capacidad', async () => {
     const { service, prisma, potrerosService } = buildDeps();
     prisma.potrero.findFirst.mockResolvedValue({ id: 'potrero-2', estado: 'ACTIVO' });
-    prisma.animal.findMany.mockResolvedValue([{ id: 'animal-1', potreroActualId: 'potrero-1' }]);
+    prisma.animal.findMany.mockResolvedValue([{ id: 'animal-1', potreroActualId: 'potrero-1', estado: 'ACTIVO' }]);
     prisma.$transaction.mockImplementation((ops: any[]) => Promise.all(ops));
     prisma.animalMovimiento.create.mockImplementation(({ data }: any) =>
       Promise.resolve({ id: `mov-${data.animalId}`, ...data }),

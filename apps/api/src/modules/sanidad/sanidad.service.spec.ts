@@ -60,6 +60,7 @@ describe('SanidadService.crearAplicacion', () => {
     animalId: 'animal-1',
     productoId: 'producto-1',
     fecha: '2026-08-20',
+    dosisAplicada: '2 ml IM',
   };
 
   it('lanza 404 si el animal no existe en el tenant', async () => {
@@ -177,7 +178,12 @@ describe('SanidadService.alertas', () => {
 });
 
 describe('SanidadService.crearAplicacionLote', () => {
-  const dto = { productoId: 'producto-1', fecha: '2026-08-22', animalIds: ['animal-1', 'animal-2'] };
+  const dto = {
+    productoId: 'producto-1',
+    fecha: '2026-08-22',
+    animalIds: ['animal-1', 'animal-2'],
+    dosisAplicada: '2 ml IM',
+  };
 
   it('lanza 404 si el producto no existe en el tenant', async () => {
     const { service, prisma } = buildDeps();

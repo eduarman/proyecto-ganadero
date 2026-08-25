@@ -199,6 +199,9 @@ export class GanadoService {
     if (animales.length !== animalIdsUnicos.length) {
       throw new NotFoundException('Uno o más animales no existen en este negocio.');
     }
+    if (animales.some((a) => a.estado !== 'ACTIVO')) {
+      throw new BadRequestException('No se pueden mover animales dados de baja.');
+    }
 
     if (!dto.confirmarSobrecapacidad) {
       // US-2.2: advertir (no bloquear) si el potrero destino queda por

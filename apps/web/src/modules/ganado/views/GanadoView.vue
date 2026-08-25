@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { isAxiosError } from 'axios';
 import { useBreakpoint } from '../../../shared/composables/useBreakpoint';
+import { useAuthStore } from '../../../stores/auth.store';
 import AppIcon from '../../../shared/components/AppIcon.vue';
 import Pill from '../../../shared/components/Pill.vue';
 import {
@@ -24,6 +25,8 @@ import {
 } from '../../sanidad/services/sanidad.api';
 
 const { isMobile } = useBreakpoint();
+const auth = useAuthStore();
+const esVeterinario = computed(() => auth.rolActivo === 'VETERINARIO_EXTERNO');
 
 const search = ref('');
 const activeId = ref<string | null>(null);
@@ -482,7 +485,12 @@ async function subirImportacion() {
         <button type="button" class="ganado-view__add-btn" @click="showFiltros = !showFiltros">
           <AppIcon name="filter" :size="16" />
         </button>
-        <button type="button" class="ganado-view__add-btn" @click="showForm ? cancelarForm() : (showForm = true)">
+        <button
+          v-if="!esVeterinario"
+          type="button"
+          class="ganado-view__add-btn"
+          @click="showForm ? cancelarForm() : (showForm = true)"
+        >
           <AppIcon name="plus" :size="18" />
         </button>
       </div>
@@ -490,23 +498,25 @@ async function subirImportacion() {
         <button type="button" class="ganado-view__btn-ghost" @click="showFiltros = !showFiltros">
           {{ showFiltros ? 'Ocultar filtros' : 'Filtros' }}
         </button>
-        <button
-          type="button"
-          class="ganado-view__btn-ghost"
-          @click="modoSeleccion = !modoSeleccion; seleccionados = new Set()"
-        >
-          {{ modoSeleccion ? 'Cancelar selección' : 'Seleccionar varios' }}
-        </button>
-        <button type="button" class="ganado-view__btn-ghost" @click="mostrarImportar = !mostrarImportar">
-          {{ mostrarImportar ? 'Cerrar importación' : 'Importar CSV' }}
-        </button>
-        <button
-          type="button"
-          class="ganado-view__new-btn"
-          @click="showForm ? cancelarForm() : (showForm = true)"
-        >
-          {{ showForm ? 'Cerrar formulario' : 'Registrar nuevo bovino' }}
-        </button>
+        <template v-if="!esVeterinario">
+          <button
+            type="button"
+            class="ganado-view__btn-ghost"
+            @click="modoSeleccion = !modoSeleccion; seleccionados = new Set()"
+          >
+            {{ modoSeleccion ? 'Cancelar selección' : 'Seleccionar varios' }}
+          </button>
+          <button type="button" class="ganado-view__btn-ghost" @click="mostrarImportar = !mostrarImportar">
+            {{ mostrarImportar ? 'Cerrar importación' : 'Importar CSV' }}
+          </button>
+          <button
+            type="button"
+            class="ganado-view__new-btn"
+            @click="showForm ? cancelarForm() : (showForm = true)"
+          >
+            {{ showForm ? 'Cerrar formulario' : 'Registrar nuevo bovino' }}
+          </button>
+        </template>
       </template>
     </div>
 
@@ -781,7 +791,7 @@ async function subirImportacion() {
               <div class="ganado-view__stat-value">{{ nombreProgenitor(c.madreId, c.madreRefExterna) }}</div>
             </div>
           </div>
-          <div class="ganado-view__detail-actions">
+          <div v-if="!esVeterinario" class="ganado-view__detail-actions">
             <button type="button" class="ganado-view__btn-ghost" @click="abrirEdicion(c)">
               Editar
             </button>
@@ -831,13 +841,14 @@ async function subirImportacion() {
             type="button"
             class="ganado-view__list-item"
             :class="{ 'ganado-view__list-item--active': c.id === activeId }"
-            @click="modoSeleccion ? toggleSeleccion(c.id) : selectCow(c.id)"
+            @click="modoSeleccion && c.estado === 'ACTIVO' ? toggleSeleccion(c.id) : selectCow(c.id)"
           >
             <input
               v-if="modoSeleccion"
               type="checkbox"
               :checked="seleccionados.has(c.id)"
-              @click.stop="toggleSeleccion(c.id)"
+              :disabled="c.estado !== 'ACTIVO'"
+              @click.stop="c.estado === 'ACTIVO' && toggleSeleccion(c.id)"
             />
             <div>
               <div class="ganado-view__acc-name">
@@ -890,7 +901,7 @@ async function subirImportacion() {
             <div class="ganado-view__detail-line">
               Potrero actual: {{ nombrePotrero(selected.potreroActualId) }}
             </div>
-            <div class="ganado-view__detail-actions">
+            <div v-if="!esVeterinario" class="ganado-view__detail-actions">
               <button type="button" class="ganado-view__btn-ghost" @click="abrirEdicion(selected)">
                 Editar
               </button>

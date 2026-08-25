@@ -1,4 +1,4 @@
-import { ArrayMinSize, IsArray, IsDateString, IsOptional, IsString, IsUUID } from 'class-validator';
+import { ArrayMinSize, IsArray, IsDateString, IsNotEmpty, IsOptional, IsString, IsUUID } from 'class-validator';
 
 export class CrearAplicacionLoteDto {
   @IsUUID()
@@ -12,9 +12,9 @@ export class CrearAplicacionLoteDto {
   @IsUUID('4', { each: true })
   animalIds!: string[];
 
-  @IsOptional()
   @IsString()
-  dosisAplicada?: string;
+  @IsNotEmpty()
+  dosisAplicada!: string;
 
   @IsOptional()
   @IsString()

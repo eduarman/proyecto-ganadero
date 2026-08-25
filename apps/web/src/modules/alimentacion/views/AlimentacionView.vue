@@ -58,6 +58,7 @@ const costosHasta = ref('');
 
 const animalesById = computed(() => new Map(animales.value.map((a) => [a.id, a])));
 const insumosActivos = computed(() => insumos.value.filter((i) => i.estado === 'ACTIVO'));
+const animalesActivos = computed(() => animales.value.filter((a) => a.estado === 'ACTIVO'));
 const recurrentesActivas = computed(() => suministrosRecurrentes.value.filter((r) => r.activo));
 
 function destinoLabel(s: Suministro): string {
@@ -383,7 +384,7 @@ async function guardarAsignacion(planId: string) {
               <option v-for="p in potreros" :key="p.id" :value="`potrero:${p.id}`">{{ p.nombre }}</option>
             </optgroup>
             <optgroup label="Animales">
-              <option v-for="a in animales" :key="a.id" :value="`animal:${a.id}`">{{ a.identificador }}</option>
+              <option v-for="a in animalesActivos" :key="a.id" :value="`animal:${a.id}`">{{ a.identificador }}</option>
             </optgroup>
           </select>
         </div>
@@ -504,7 +505,7 @@ async function guardarAsignacion(planId: string) {
               <option v-for="p in potreros" :key="p.id" :value="`potrero:${p.id}`">{{ p.nombre }}</option>
             </optgroup>
             <optgroup label="Animales">
-              <option v-for="a in animales" :key="a.id" :value="`animal:${a.id}`">{{ a.identificador }}</option>
+              <option v-for="a in animalesActivos" :key="a.id" :value="`animal:${a.id}`">{{ a.identificador }}</option>
             </optgroup>
           </select>
         </div>
@@ -658,7 +659,7 @@ async function guardarAsignacion(planId: string) {
             </select>
           </div>
           <div v-else class="alimentacion-view__lote-checks">
-            <label v-for="a in animales" :key="a.id" class="alimentacion-view__lote-check">
+            <label v-for="a in animalesActivos" :key="a.id" class="alimentacion-view__lote-check">
               <input
                 type="checkbox"
                 :checked="asignacionForm.animalIds.includes(a.id)"

@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import ResponsiveShell from '../shared/components/ResponsiveShell.vue';
+import { NAV_KEYS_VETERINARIO } from '../shared/nav';
 import { useAuthStore } from '../stores/auth.store';
 
 declare module 'vue-router' {
@@ -179,6 +180,15 @@ router.beforeEach(async (to) => {
 
   if (isPublicAuthRoute && auth.isAuthenticated) {
     return { path: '/dashboard' };
+  }
+
+  if (
+    auth.isAuthenticated &&
+    auth.rolActivo === 'VETERINARIO_EXTERNO' &&
+    typeof to.meta.navKey === 'string' &&
+    !NAV_KEYS_VETERINARIO.has(to.meta.navKey)
+  ) {
+    return { path: '/sanidad' };
   }
 
   return true;

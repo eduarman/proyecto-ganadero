@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { authApi, type Negocio, type Usuario } from '../modules/auth/services/auth.api';
+import { authApi, type Negocio, type RolUsuario, type Usuario } from '../modules/auth/services/auth.api';
 
 export interface CurrentUser {
   name: string;
@@ -44,6 +44,11 @@ export const useAuthStore = defineStore('auth', {
         role: state.negocioActivo ? (ROL_LABELS[state.negocioActivo.rol] ?? state.negocioActivo.rol) : '',
         initials: initialsOf(state.usuario.nombre),
       };
+    },
+
+    // Rol crudo (no traducido) — usado para guards de navegación por rol.
+    rolActivo(state): RolUsuario | null {
+      return state.negocioActivo?.rol ?? null;
     },
   },
   actions: {

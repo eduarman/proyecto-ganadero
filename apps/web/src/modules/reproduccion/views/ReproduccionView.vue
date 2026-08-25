@@ -89,7 +89,7 @@ async function cargar() {
       reproduccionApi.listarServicios(),
     ]);
     animales.value = animalesResp.data;
-    hembras.value = animalesResp.data.filter((a) => a.sexo === 'HEMBRA');
+    hembras.value = animalesResp.data.filter((a) => a.sexo === 'HEMBRA' && a.estado === 'ACTIVO');
     pendientes.value = pendientesResp;
     calendario.value = calendarioResp;
     historial.value = historialResp;
@@ -99,6 +99,8 @@ async function cargar() {
 }
 
 onMounted(cargar);
+
+const animalesActivos = computed(() => animales.value.filter((a) => a.estado === 'ACTIVO'));
 
 function diasHasta(iso: string): number {
   return Math.ceil((new Date(iso).getTime() - Date.now()) / (24 * 60 * 60 * 1000));
@@ -219,7 +221,7 @@ async function guardar(confirmarDuplicado = false) {
             </select>
             <select v-else-if="isDestete" v-model="form.animalId">
               <option value="" disabled>Seleccioná una cría</option>
-              <option v-for="a in animales" :key="a.id" :value="a.id">{{ a.identificador }}</option>
+              <option v-for="a in animalesActivos" :key="a.id" :value="a.id">{{ a.identificador }}</option>
             </select>
             <select v-else v-model="form.animalId">
               <option value="" disabled>Seleccioná una hembra</option>

@@ -6,6 +6,7 @@ import { TenantGuard } from '../../common/guards/tenant.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { JwtPayload } from '../auth/jwt-payload.interface';
+import { CrearRegistroLecheLoteDto } from './dto/crear-registro-leche-lote.dto';
 import { CrearRegistroLecheDto } from './dto/crear-registro-leche.dto';
 import { CrearRegistroPesoLoteDto } from './dto/crear-registro-peso-lote.dto';
 import { CrearRegistroPesoDto } from './dto/crear-registro-peso.dto';
@@ -28,6 +29,12 @@ export class ProduccionController {
   @Roles(RolUsuario.ADMIN_NEGOCIO, RolUsuario.MAYORDOMO, RolUsuario.OPERARIO)
   registrarLeche(@CurrentUser() user: JwtPayload, @Body() dto: CrearRegistroLecheDto) {
     return this.produccionService.registrarLeche(user.tenantId as string, dto, user.sub);
+  }
+
+  @Post('leche/lote')
+  @Roles(...ROLES_REGISTRO)
+  registrarLecheLote(@CurrentUser() user: JwtPayload, @Body() dto: CrearRegistroLecheLoteDto) {
+    return this.produccionService.registrarLecheLote(user.tenantId as string, dto, user.sub);
   }
 
   @Get('leche/total')

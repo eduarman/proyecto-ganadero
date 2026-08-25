@@ -1,4 +1,4 @@
-import { IsDateString, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsDateString, IsNotEmpty, IsOptional, IsString, IsUUID } from 'class-validator';
 
 export class CrearAplicacionDto {
   @IsUUID()
@@ -10,9 +10,9 @@ export class CrearAplicacionDto {
   @IsDateString()
   fecha!: string;
 
-  @IsOptional()
   @IsString()
-  dosisAplicada?: string;
+  @IsNotEmpty()
+  dosisAplicada!: string;
 
   @IsOptional()
   @IsString()

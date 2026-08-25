@@ -8,6 +8,7 @@ import { ganadoApi, type Animal } from '../../ganado/services/ganado.api';
 import { potrerosApi, type Potrero } from '../../potreros/services/potreros.api';
 import {
   produccionApi,
+  type CrearRegistroLecheLotePayload,
   type IndicadoresProduccion,
   type RegistroLeche,
   type RegistroLecheTotal,
@@ -64,6 +65,8 @@ async function cargar() {
 }
 
 onMounted(cargar);
+
+const animalesActivos = computed(() => animales.value.filter((a) => a.estado === 'ACTIVO'));
 
 const kpis = computed(() => {
   const ind = indicadores.value;
@@ -135,6 +138,43 @@ async function guardar() {
       : 'No se pudo guardar el registro.';
   } finally {
     saving.value = false;
+  }
+}
+
+const showLoteLeche = ref(false);
+const loteLecheFecha = ref(new Date().toISOString().slice(0, 10));
+const loteLecheTurno = ref<TurnoOrdenio>('MANANA');
+const loteLecheValores = ref<Record<string, string>>({});
+const savingLoteLeche = ref(false);
+const loteLecheError = ref('');
+
+async function guardarLoteLeche() {
+  loteLecheError.value = '';
+  const registrosLote: CrearRegistroLecheLotePayload['registros'] = Object.entries(loteLecheValores.value)
+    .filter(([, valor]) => valor !== '')
+    .map(([animalId, valor]) => ({ animalId, litros: Number(valor) }));
+
+  if (registrosLote.length === 0) {
+    loteLecheError.value = 'Cargá al menos un valor de litros para guardar el lote.';
+    return;
+  }
+
+  savingLoteLeche.value = true;
+  try {
+    await produccionApi.registrarLecheLote({
+      fecha: loteLecheFecha.value,
+      turno: loteLecheTurno.value,
+      registros: registrosLote,
+    });
+    loteLecheValores.value = {};
+    showLoteLeche.value = false;
+    await cargar();
+  } catch (error) {
+    loteLecheError.value = isAxiosError(error)
+      ? ((error.response?.data as { message?: string } | undefined)?.message ?? 'No se pudo guardar el lote de leche.')
+      : 'No se pudo guardar el lote de leche.';
+  } finally {
+    savingLoteLeche.value = false;
   }
 }
 
@@ -252,6 +292,9 @@ async function guardarLotePeso() {
     <div class="produccion-view__top" :class="{ 'produccion-view__top--mobile': isMobile }">
       <SectionCard :title="isMobile ? 'Registrar producción' : 'Registrar producción de leche'">
         <template #actions>
+          <button type="button" class="produccion-view__link-btn" @click="showLoteLeche = !showLoteLeche">
+            {{ showLoteLeche ? 'Cancelar' : 'Cargar leche por lote' }}
+          </button>
           <button type="button" class="produccion-view__link-btn" @click="showTotalForm = !showTotalForm">
             {{ showTotalForm ? 'Cancelar' : 'Cargar total por turno' }}
           </button>
@@ -261,7 +304,7 @@ async function guardarLotePeso() {
           <label v-if="!isMobile">Bovino</label>
           <select v-model="form.animalId">
             <option value="" disabled>Seleccioná un animal</option>
-            <option v-for="a in animales" :key="a.id" :value="a.id">{{ a.identificador }}</option>
+            <option v-for="a in animalesActivos" :key="a.id" :value="a.id">{{ a.identificador }}</option>
           </select>
         </div>
         <div class="produccion-view__form-grid" :class="{ 'produccion-view__form-grid--mobile': isMobile }">
@@ -288,6 +331,40 @@ async function guardarLotePeso() {
         >
           {{ saving ? 'Guardando…' : 'Guardar producción' }}
         </button>
+
+        <div v-if="showLoteLeche" class="produccion-view__total-form">
+          <div class="produccion-view__total-form-title">Registrar leche por lote</div>
+          <div v-if="loteLecheError" class="produccion-view__error">{{ loteLecheError }}</div>
+          <div class="produccion-view__form-grid" :class="{ 'produccion-view__form-grid--mobile': isMobile }">
+            <div class="produccion-view__field">
+              <label>Turno</label>
+              <select v-model="loteLecheTurno">
+                <option v-for="(label, valor) in TURNO_LABELS" :key="valor" :value="valor">{{ label }}</option>
+              </select>
+            </div>
+            <div class="produccion-view__field">
+              <label>Fecha</label>
+              <input v-model="loteLecheFecha" type="date" />
+            </div>
+          </div>
+          <div v-if="animalesActivos.length === 0" class="produccion-view__muted">
+            No hay animales activos para registrar.
+          </div>
+          <div v-else class="produccion-view__lote-grid">
+            <div v-for="a in animalesActivos" :key="a.id" class="produccion-view__lote-row">
+              <span class="produccion-view__bold">{{ a.identificador }}</span>
+              <input v-model="loteLecheValores[a.id]" type="number" min="0" step="0.1" placeholder="L" />
+            </div>
+          </div>
+          <button
+            type="button"
+            class="produccion-view__submit produccion-view__submit--sm"
+            :disabled="savingLoteLeche"
+            @click="guardarLoteLeche"
+          >
+            {{ savingLoteLeche ? 'Guardando…' : 'Guardar leche del lote' }}
+          </button>
+        </div>
 
         <div v-if="showTotalForm" class="produccion-view__total-form">
           <div class="produccion-view__total-form-title">
@@ -346,7 +423,7 @@ async function guardarLotePeso() {
         <label v-if="!isMobile">Bovino</label>
         <select v-model="pesoForm.animalId">
           <option value="" disabled>Seleccioná un animal</option>
-          <option v-for="a in animales" :key="a.id" :value="a.id">{{ a.identificador }}</option>
+          <option v-for="a in animalesActivos" :key="a.id" :value="a.id">{{ a.identificador }}</option>
         </select>
       </div>
       <div class="produccion-view__form-grid" :class="{ 'produccion-view__form-grid--mobile': isMobile }">

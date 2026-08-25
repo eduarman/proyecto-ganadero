@@ -21,6 +21,12 @@ export interface CrearRegistroLechePayload {
   litros: number;
 }
 
+export interface CrearRegistroLecheLotePayload {
+  fecha: string;
+  turno: TurnoOrdenio;
+  registros: { animalId: string; litros: number }[];
+}
+
 export interface RegistroLecheTotal {
   id: string;
   tenantId: string;
@@ -80,6 +86,9 @@ export const produccionApi = {
   },
   registrarLeche(payload: CrearRegistroLechePayload) {
     return http.post<RegistroLeche>('/produccion/leche', payload).then((r) => r.data);
+  },
+  registrarLecheLote(payload: CrearRegistroLecheLotePayload) {
+    return http.post<RegistroLeche[]>('/produccion/leche/lote', payload).then((r) => r.data);
   },
   indicadores() {
     return http.get<IndicadoresProduccion>('/produccion/indicadores').then((r) => r.data);

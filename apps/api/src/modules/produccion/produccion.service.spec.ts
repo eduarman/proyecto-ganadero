@@ -59,6 +59,39 @@ describe('ProduccionService.registrarLeche', () => {
   });
 });
 
+describe('ProduccionService.registrarLecheLote', () => {
+  const dto = {
+    fecha: '2026-08-20',
+    turno: 'MANANA' as const,
+    registros: [
+      { animalId: 'animal-1', litros: 12 },
+      { animalId: 'animal-2', litros: 14.5 },
+    ],
+  };
+
+  it('lanza 404 si algún animal del lote no existe en el tenant', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.animal.findMany.mockResolvedValue([{ id: 'animal-1' }]);
+
+    await expect(service.registrarLecheLote(TENANT_A, dto, 'user-1')).rejects.toThrow(NotFoundException);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('hace upsert transaccional por cada animal del lote', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.animal.findMany.mockResolvedValue([{ id: 'animal-1' }, { id: 'animal-2' }]);
+    prisma.registroLeche.upsert.mockImplementation(({ create }: any) =>
+      Promise.resolve({ id: `leche-${create.animalId}`, ...create }),
+    );
+    prisma.$transaction.mockImplementation((ops: any[]) => Promise.all(ops));
+
+    const resultado = await service.registrarLecheLote(TENANT_A, dto, 'user-1');
+
+    expect(resultado).toHaveLength(2);
+    expect(prisma.registroLeche.upsert).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('ProduccionService.registrarTotal', () => {
   it('hace upsert por tenant+fecha+turno para no duplicar', async () => {
     const { service, prisma } = buildDeps();

@@ -2,7 +2,7 @@
 import { computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth.store';
-import { BOTTOM_NAV, MORE_KEYS } from '../shared/nav';
+import { BOTTOM_NAV, MORE_KEYS, NAV_KEYS_VETERINARIO } from '../shared/nav';
 import AppIcon from '../shared/components/AppIcon.vue';
 import TenantSwitcher from '../shared/components/TenantSwitcher.vue';
 
@@ -13,6 +13,12 @@ const auth = useAuthStore();
 const navKey = computed(() => (route.meta.navKey as string) ?? 'dashboard');
 const showBack = computed(() => navKey.value !== 'dashboard' && navKey.value !== 'more');
 const showLogo = computed(() => navKey.value === 'dashboard' || navKey.value === 'more');
+
+const navItems = computed(() =>
+  auth.rolActivo === 'VETERINARIO_EXTERNO'
+    ? BOTTOM_NAV.filter((item) => NAV_KEYS_VETERINARIO.has(item.key))
+    : BOTTOM_NAV,
+);
 
 function isActive(key: string) {
   return key === 'more' ? MORE_KEYS.has(navKey.value) : navKey.value === key;
@@ -54,7 +60,7 @@ function isActive(key: string) {
 
     <nav class="mobile-layout__bottom-nav">
       <RouterLink
-        v-for="item in BOTTOM_NAV"
+        v-for="item in navItems"
         :key="item.key"
         :to="item.path"
         class="mobile-layout__nav-item"

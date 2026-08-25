@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { CrearRegistroLecheLoteDto } from './dto/crear-registro-leche-lote.dto';
 import { CrearRegistroLecheDto } from './dto/crear-registro-leche.dto';
 import { CrearRegistroPesoLoteDto } from './dto/crear-registro-peso-lote.dto';
 import { CrearRegistroPesoDto } from './dto/crear-registro-peso.dto';
@@ -46,6 +47,29 @@ export class ProduccionService {
       update: { litros: dto.litros, registradoPor },
       include: { animal: true },
     });
+  }
+
+  async registrarLecheLote(tenantId: string, dto: CrearRegistroLecheLoteDto, registradoPor: string) {
+    const animalIdsUnicos = Array.from(new Set(dto.registros.map((r) => r.animalId)));
+    const animales = await this.prisma.animal.findMany({
+      where: { id: { in: animalIdsUnicos }, tenantId },
+    });
+    if (animales.length !== animalIdsUnicos.length) {
+      throw new NotFoundException('Uno o más animales no existen en este negocio.');
+    }
+
+    const fecha = new Date(dto.fecha);
+    return this.prisma.$transaction(
+      dto.registros.map((r) =>
+        this.prisma.registroLeche.upsert({
+          where: {
+            tenantId_animalId_fecha_turno: { tenantId, animalId: r.animalId, fecha, turno: dto.turno },
+          },
+          create: { tenantId, animalId: r.animalId, fecha, turno: dto.turno, litros: r.litros, registradoPor },
+          update: { litros: r.litros, registradoPor },
+        }),
+      ),
+    );
   }
 
   listar(tenantId: string, animalId?: string) {
