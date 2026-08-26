@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { isAxiosError } from 'axios';
 import { useBreakpoint } from '../../../shared/composables/useBreakpoint';
+import { diaMesCorto, formatFechaCorta } from '../../../shared/utils/fecha';
 import SectionCard from '../../../shared/components/SectionCard.vue';
 import SegmentedTabs from '../../../shared/components/SegmentedTabs.vue';
 import DayBadge from '../../../shared/components/DayBadge.vue';
@@ -56,13 +57,11 @@ function estiloEstadoServicio(estado: string): { bg: string; color: string } {
     : { bg: 'var(--color-neutral-bg)', color: 'var(--color-primary)' };
 }
 
-const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 function diaMes(iso: string) {
-  const fecha = new Date(iso);
-  return { day: String(fecha.getDate()).padStart(2, '0'), month: MESES[fecha.getMonth()] };
+  return diaMesCorto(iso);
 }
 function formatFecha(iso: string) {
-  return new Date(iso).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' });
+  return formatFechaCorta(iso);
 }
 
 const CALENDARIO_VACIO: CalendarioReproductivo = {

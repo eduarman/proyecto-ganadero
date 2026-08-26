@@ -2,15 +2,20 @@
 import { computed } from 'vue';
 import { useRouter } from 'vue-router';
 import AppIcon from '../../../shared/components/AppIcon.vue';
-import { MORE_NAV, NAV_KEYS_ADMIN } from '../../../shared/nav';
+import { MORE_NAV, NAV_KEYS_ADMIN, NAV_KEYS_SIN_OPERARIO } from '../../../shared/nav';
 import { useAuthStore } from '../../../stores/auth.store';
 
 const router = useRouter();
 const auth = useAuthStore();
 
-const items = computed(() =>
-  auth.rolActivo === 'ADMIN_NEGOCIO' ? MORE_NAV : MORE_NAV.filter((item) => !NAV_KEYS_ADMIN.has(item.key)),
-);
+const items = computed(() => {
+  if (auth.rolActivo === 'ADMIN_NEGOCIO') return MORE_NAV;
+  let filtered = MORE_NAV.filter((item) => !NAV_KEYS_ADMIN.has(item.key));
+  if (auth.rolActivo === 'OPERARIO') {
+    filtered = filtered.filter((item) => !NAV_KEYS_SIN_OPERARIO.has(item.key));
+  }
+  return filtered;
+});
 </script>
 
 <template>

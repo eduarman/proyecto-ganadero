@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { isAxiosError } from 'axios';
 import { useBreakpoint } from '../../../shared/composables/useBreakpoint';
+import { formatFecha } from '../../../shared/utils/fecha';
 import SectionCard from '../../../shared/components/SectionCard.vue';
 import Pill from '../../../shared/components/Pill.vue';
 import { potrerosApi, type Potrero } from '../services/potreros.api';
@@ -235,7 +236,7 @@ function nombreMovimiento(m: AnimalMovimiento): string {
               Sin movimientos registrados.
             </div>
             <div v-else v-for="m in historialData[p.id]" :key="m.id" class="potreros-view__historial-item">
-              <span>{{ new Date(m.fecha).toLocaleDateString() }}</span>
+              <span>{{ formatFecha(m.fecha) }}</span>
               <span>{{ nombreMovimiento(m) }}</span>
               <span v-if="m.animal">{{ m.animal.identificador }}</span>
             </div>
@@ -269,7 +270,7 @@ function nombreMovimiento(m: AnimalMovimiento): string {
               Sin movimientos registrados.
             </div>
             <div v-else v-for="m in historialData[p.id]" :key="m.id" class="potreros-view__historial-item">
-              <span>{{ new Date(m.fecha).toLocaleDateString() }}</span>
+              <span>{{ formatFecha(m.fecha) }}</span>
               <span>{{ nombreMovimiento(m) }}</span>
               <span v-if="m.animal">{{ m.animal.identificador }}</span>
             </div>

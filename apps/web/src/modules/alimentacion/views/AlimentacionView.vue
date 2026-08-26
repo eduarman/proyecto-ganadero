@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { isAxiosError } from 'axios';
 import { useBreakpoint } from '../../../shared/composables/useBreakpoint';
+import { formatFechaCorta } from '../../../shared/utils/fecha';
 import SectionCard from '../../../shared/components/SectionCard.vue';
 import { useAuthStore } from '../../../stores/auth.store';
 import { ganadoApi, type Animal } from '../../ganado/services/ganado.api';
@@ -39,7 +40,7 @@ const FRECUENCIA_LABELS: Record<FrecuenciaSuministro, string> = { DIARIA: 'Diari
 const BAR_COLORS = ['var(--color-dark)', 'var(--color-primary)', 'var(--color-accent)', 'var(--color-warn)'];
 
 function formatFecha(iso: string) {
-  return new Date(iso).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' });
+  return formatFechaCorta(iso);
 }
 function formatMoneda(valor: number) {
   return `$${valor.toFixed(2)}`;

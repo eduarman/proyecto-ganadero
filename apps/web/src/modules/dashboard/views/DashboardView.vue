@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { useBreakpoint } from '../../../shared/composables/useBreakpoint';
+import { formatFechaCorta } from '../../../shared/utils/fecha';
 import { useAuthStore } from '../../../stores/auth.store';
 import KpiCard from '../../../shared/components/KpiCard.vue';
 import AlertItem from '../../../shared/components/AlertItem.vue';
@@ -34,6 +35,12 @@ const shortcutsMobile: Shortcut[] = [
   { label: 'Producción', icon: 'droplet', to: '/produccion' },
   { label: 'Potreros', icon: 'map', to: '/potreros' },
 ];
+
+// OPERARIO no tiene acceso al módulo de reportes (security-roles.md), así
+// que no le mostramos un acceso directo que lo llevaría a una ruta vedada.
+const shortcuts = computed(() =>
+  authStore.rolActivo === 'OPERARIO' ? shortcutsDesktop.filter((sc) => sc.to !== '/reportes') : shortcutsDesktop,
+);
 
 const loading = ref(true);
 const resumen = ref<ResumenDashboard | null>(null);
@@ -115,7 +122,7 @@ const weekBars = computed(() => {
 });
 
 function formatFecha(iso: string) {
-  return new Date(iso).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' });
+  return formatFechaCorta(iso);
 }
 
 function alertaDetail(a: Alerta): string {
@@ -247,7 +254,7 @@ const mobileAlerts = computed(() => alerts.value.slice(0, 3));
 
         <SectionCard title="Accesos directos" dark>
           <div class="dashboard-desktop__shortcuts">
-            <RouterLink v-for="sc in shortcutsDesktop" :key="sc.label" :to="sc.to" class="dashboard-desktop__shortcut">
+            <RouterLink v-for="sc in shortcuts" :key="sc.label" :to="sc.to" class="dashboard-desktop__shortcut">
               <AppIcon :name="sc.icon" :size="16" style="color: var(--color-accent)" />
               <div>{{ sc.label }}</div>
             </RouterLink>

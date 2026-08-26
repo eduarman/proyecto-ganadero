@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { isAxiosError } from 'axios';
 import { useBreakpoint } from '../../../shared/composables/useBreakpoint';
+import { diaMesCorto, formatFecha as formatFechaUtc } from '../../../shared/utils/fecha';
 import SectionCard from '../../../shared/components/SectionCard.vue';
 import DayBadge from '../../../shared/components/DayBadge.vue';
 import Pill from '../../../shared/components/Pill.vue';
@@ -22,13 +23,11 @@ import {
 
 const { isMobile } = useBreakpoint();
 
-const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 function diaMes(iso: string) {
-  const fecha = new Date(iso);
-  return { day: String(fecha.getDate()).padStart(2, '0'), month: MESES[fecha.getMonth()] };
+  return diaMesCorto(iso);
 }
 function formatFecha(iso: string) {
-  return new Date(iso).toLocaleDateString('es-ES');
+  return formatFechaUtc(iso);
 }
 
 const TIPO_LABELS: Record<TipoProductoSanitario, string> = {

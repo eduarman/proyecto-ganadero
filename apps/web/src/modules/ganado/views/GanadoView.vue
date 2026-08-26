@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { isAxiosError } from 'axios';
 import { useBreakpoint } from '../../../shared/composables/useBreakpoint';
+import { formatFecha as formatFechaUtc } from '../../../shared/utils/fecha';
 import { useAuthStore } from '../../../stores/auth.store';
 import AppIcon from '../../../shared/components/AppIcon.vue';
 import Pill from '../../../shared/components/Pill.vue';
@@ -108,7 +109,7 @@ function estiloEstado(estado: string) {
 
 function formatFecha(iso: string | null) {
   if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('es-ES');
+  return formatFechaUtc(iso);
 }
 
 const animalesEnCuarentena = ref<Set<string>>(new Set());

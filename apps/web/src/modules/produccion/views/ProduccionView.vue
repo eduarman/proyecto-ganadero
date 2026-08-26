@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { isAxiosError } from 'axios';
 import { useBreakpoint } from '../../../shared/composables/useBreakpoint';
+import { formatFechaCorta } from '../../../shared/utils/fecha';
 import SectionCard from '../../../shared/components/SectionCard.vue';
 import Pill from '../../../shared/components/Pill.vue';
 import { ganadoApi, type Animal } from '../../ganado/services/ganado.api';
@@ -31,7 +32,7 @@ function formatLitros(n: number): string {
 }
 
 function formatFecha(iso: string): string {
-  return new Date(iso).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' });
+  return formatFechaCorta(iso);
 }
 
 const loading = ref(true);

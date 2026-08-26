@@ -2,7 +2,7 @@
 import { computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '../stores/auth.store';
-import { NAV_KEYS_ADMIN, NAV_KEYS_VETERINARIO, SIDEBAR_NAV } from '../shared/nav';
+import { NAV_KEYS_ADMIN, NAV_KEYS_SIN_OPERARIO, NAV_KEYS_VETERINARIO, SIDEBAR_NAV } from '../shared/nav';
 import AppIcon from '../shared/components/AppIcon.vue';
 import TenantSwitcher from '../shared/components/TenantSwitcher.vue';
 
@@ -12,6 +12,9 @@ const auth = useAuthStore();
 const navItems = computed(() => {
   if (auth.rolActivo === 'VETERINARIO_EXTERNO') {
     return SIDEBAR_NAV.filter((item) => NAV_KEYS_VETERINARIO.has(item.key));
+  }
+  if (auth.rolActivo === 'OPERARIO') {
+    return SIDEBAR_NAV.filter((item) => !NAV_KEYS_ADMIN.has(item.key) && !NAV_KEYS_SIN_OPERARIO.has(item.key));
   }
   if (auth.rolActivo === 'ADMIN_NEGOCIO') {
     return SIDEBAR_NAV;

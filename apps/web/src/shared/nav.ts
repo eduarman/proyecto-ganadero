@@ -64,3 +64,7 @@ export const NAV_KEYS_VETERINARIO = new Set(['sanidad', 'ganado', 'cuenta']);
 // backend ya es la barrera real (@Roles(ADMIN_NEGOCIO) en usuarios.controller);
 // esto es solo para no mostrar la entrada de nav a quien no puede usarla.
 export const NAV_KEYS_ADMIN = new Set(['usuarios']);
+
+// OPERARIO no tiene acceso a Reportes (security-roles.md); el backend ya lo
+// bloquea (403) — esto evita mandarlo a una ruta que igual le va a fallar.
+export const NAV_KEYS_SIN_OPERARIO = new Set(['reportes']);
