@@ -29,6 +29,8 @@ Roles predefinidos, no editables por el usuario (evita explosión de complejidad
 | Sanidad | RW | RW | RW (registrar) | RW |
 | Reportes | RW | R | - | R (solo sanidad) |
 | Usuarios | RW | - | - | - |
+| Trabajadores (datos operativos) | RW | RW | - | - |
+| Trabajadores (pagos/adelantos/préstamos) | RW | R | - | - |
 | Suscripción/Negocios | RW | - | - | - |
 
 Esta matriz es la fuente de verdad inicial; el detalle fino de acciones (ej. "puede eliminar" vs "puede crear") se especifica en `design.md` de cada spec de módulo.

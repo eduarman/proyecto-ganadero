@@ -27,6 +27,7 @@ Los productores ganaderos medianos/pequeños suelen llevar esta información en 
 8. **Reportes**: reportes consolidados y exportables (PDF/Excel) por módulo y cruzados (ej. costo de alimentación vs producción).
 9. **Gestión de usuarios y roles**: administración de usuarios internos del negocio, asignación de roles y permisos.
 10. **Gestión de suscripción y negocios**: administración del plan contratado, límites de uso, y (plan 3) gestión de múltiples negocios/localidades.
+11. **Trabajadores**: gestión de personal de campo — cargos, asignaciones, actividades realizadas, asistencia/jornadas, pagos/liquidaciones, adelantos y préstamos, con soporte de moneda (USD/VES) y tasa de cambio histórica.
 
 Ver detalle funcional de cada módulo en `.claude/specs/<modulo>/requirements.md`.
 
