@@ -1,0 +1,205 @@
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { PrismaService } from '../../prisma/prisma.service';
+import { ActualizarTrabajadorDto } from './dto/actualizar-trabajador.dto';
+import { CrearCargoDto } from './dto/crear-cargo.dto';
+import { CrearTrabajadorDto } from './dto/crear-trabajador.dto';
+import { ListarTrabajadoresQueryDto } from './dto/listar-trabajadores-query.dto';
+
+// Antigüedad se calcula al leer, no se persiste (mismo criterio que
+// categoria_etaria/GDP en otros módulos).
+function calcularAntiguedad(fechaIngreso: Date): { anios: number; meses: number } {
+  const ahora = new Date();
+  let meses =
+    (ahora.getUTCFullYear() - fechaIngreso.getUTCFullYear()) * 12 +
+    (ahora.getUTCMonth() - fechaIngreso.getUTCMonth());
+  if (ahora.getUTCDate() < fechaIngreso.getUTCDate()) {
+    meses -= 1;
+  }
+  meses = Math.max(0, meses);
+  return { anios: Math.floor(meses / 12), meses: meses % 12 };
+}
+
+@Injectable()
+export class TrabajadoresService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  // --- Cargos (catálogo) ---------------------------------------------------
+
+  async crearCargo(tenantId: string, dto: CrearCargoDto) {
+    const existente = await this.prisma.cargo.findUnique({
+      where: { tenantId_nombre: { tenantId, nombre: dto.nombre } },
+    });
+    if (existente) {
+      throw new ConflictException({
+        code: 'NOMBRE_DUPLICADO',
+        message: `Ya existe un cargo con el nombre "${dto.nombre}" en este negocio.`,
+      });
+    }
+    return this.prisma.cargo.create({ data: { tenantId, nombre: dto.nombre } });
+  }
+
+  listarCargos(tenantId: string) {
+    return this.prisma.cargo.findMany({
+      where: { tenantId, estado: 'ACTIVO' },
+      orderBy: { nombre: 'asc' },
+    });
+  }
+
+  private async obtenerCargo(tenantId: string, id: string) {
+    const cargo = await this.prisma.cargo.findFirst({ where: { id, tenantId } });
+    if (!cargo) {
+      throw new NotFoundException('Cargo no encontrado.');
+    }
+    return cargo;
+  }
+
+  async activarCargo(tenantId: string, id: string) {
+    await this.obtenerCargo(tenantId, id);
+    return this.prisma.cargo.update({ where: { id }, data: { estado: 'ACTIVO' } });
+  }
+
+  async inactivarCargo(tenantId: string, id: string) {
+    await this.obtenerCargo(tenantId, id);
+    return this.prisma.cargo.update({ where: { id }, data: { estado: 'INACTIVO' } });
+  }
+
+  // --- Trabajadores ----------------------------------------------------------
+
+  private async assertDocumentoDisponible(tenantId: string, documento: string, excluirId?: string) {
+    const existente = await this.prisma.trabajador.findUnique({
+      where: { tenantId_documento: { tenantId, documento } },
+    });
+    if (existente && existente.id !== excluirId) {
+      throw new ConflictException({
+        code: 'DOCUMENTO_DUPLICADO',
+        message: `Ya existe un trabajador con el documento "${documento}" en este negocio.`,
+      });
+    }
+  }
+
+  private async assertCargoValido(tenantId: string, cargoId: string) {
+    const cargo = await this.prisma.cargo.findFirst({ where: { id: cargoId, tenantId } });
+    if (!cargo) {
+      throw new NotFoundException('Cargo no encontrado.');
+    }
+    if (cargo.estado !== 'ACTIVO') {
+      throw new BadRequestException('El cargo seleccionado está inactivo.');
+    }
+  }
+
+  async crear(tenantId: string, dto: CrearTrabajadorDto) {
+    await this.assertDocumentoDisponible(tenantId, dto.documento);
+    await this.assertCargoValido(tenantId, dto.cargoId);
+
+    return this.prisma.trabajador.create({
+      data: {
+        tenantId,
+        nombres: dto.nombres,
+        apellidos: dto.apellidos,
+        documento: dto.documento,
+        cargoId: dto.cargoId,
+        fechaIngreso: new Date(dto.fechaIngreso),
+        tipoContratacion: dto.tipoContratacion,
+        modalidadPago: dto.modalidadPago,
+        salarioOJornal: dto.salarioOJornal,
+        fechaNacimiento: dto.fechaNacimiento ? new Date(dto.fechaNacimiento) : null,
+        telefono: dto.telefono,
+        email: dto.email,
+        direccion: dto.direccion,
+        contactoEmergenciaNombre: dto.contactoEmergenciaNombre,
+        contactoEmergenciaTelefono: dto.contactoEmergenciaTelefono,
+      },
+      include: { cargo: true },
+    });
+  }
+
+  async listar(tenantId: string, query: ListarTrabajadoresQueryDto) {
+    const where: Prisma.TrabajadorWhereInput = {
+      tenantId,
+      ...(query.estado && { estado: query.estado }),
+      ...(query.cargoId && { cargoId: query.cargoId }),
+      ...(query.search && {
+        OR: [
+          { nombres: { contains: query.search, mode: 'insensitive' } },
+          { apellidos: { contains: query.search, mode: 'insensitive' } },
+          { documento: { contains: query.search, mode: 'insensitive' } },
+        ],
+      }),
+    };
+
+    const [data, total] = await Promise.all([
+      this.prisma.trabajador.findMany({
+        where,
+        include: { cargo: true },
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.trabajador.count({ where }),
+    ]);
+
+    return { data, total, page: query.page, limit: query.limit };
+  }
+
+  async obtener(tenantId: string, id: string) {
+    const trabajador = await this.prisma.trabajador.findFirst({
+      where: { id, tenantId },
+      include: { cargo: true },
+    });
+    if (!trabajador) {
+      throw new NotFoundException('Trabajador no encontrado.');
+    }
+    return { ...trabajador, antiguedad: calcularAntiguedad(trabajador.fechaIngreso) };
+  }
+
+  async actualizar(tenantId: string, id: string, dto: ActualizarTrabajadorDto) {
+    await this.obtenerSinAntiguedad(tenantId, id);
+
+    if (dto.documento) {
+      await this.assertDocumentoDisponible(tenantId, dto.documento, id);
+    }
+    if (dto.cargoId) {
+      await this.assertCargoValido(tenantId, dto.cargoId);
+    }
+
+    return this.prisma.trabajador.update({
+      where: { id },
+      data: {
+        nombres: dto.nombres,
+        apellidos: dto.apellidos,
+        documento: dto.documento,
+        cargoId: dto.cargoId,
+        fechaIngreso: dto.fechaIngreso ? new Date(dto.fechaIngreso) : undefined,
+        tipoContratacion: dto.tipoContratacion,
+        modalidadPago: dto.modalidadPago,
+        salarioOJornal: dto.salarioOJornal,
+        fechaNacimiento: dto.fechaNacimiento ? new Date(dto.fechaNacimiento) : undefined,
+        telefono: dto.telefono,
+        email: dto.email,
+        direccion: dto.direccion,
+        contactoEmergenciaNombre: dto.contactoEmergenciaNombre,
+        contactoEmergenciaTelefono: dto.contactoEmergenciaTelefono,
+      },
+      include: { cargo: true },
+    });
+  }
+
+  private async obtenerSinAntiguedad(tenantId: string, id: string) {
+    const trabajador = await this.prisma.trabajador.findFirst({ where: { id, tenantId } });
+    if (!trabajador) {
+      throw new NotFoundException('Trabajador no encontrado.');
+    }
+    return trabajador;
+  }
+
+  async activar(tenantId: string, id: string) {
+    await this.obtenerSinAntiguedad(tenantId, id);
+    return this.prisma.trabajador.update({ where: { id }, data: { estado: 'ACTIVO' } });
+  }
+
+  async inactivar(tenantId: string, id: string) {
+    await this.obtenerSinAntiguedad(tenantId, id);
+    return this.prisma.trabajador.update({ where: { id }, data: { estado: 'INACTIVO' } });
+  }
+}

@@ -130,6 +130,26 @@ const router = createRouter({
           },
         },
         {
+          path: 'trabajadores',
+          name: 'trabajadores',
+          component: () => import('../modules/trabajadores/views/ListaTrabajadoresView.vue'),
+          meta: {
+            navKey: 'trabajadores',
+            title: 'Trabajadores',
+            subtitle: 'Personal de campo, cargos y ficha de cada trabajador',
+          },
+        },
+        {
+          path: 'trabajadores/:id',
+          name: 'trabajador-ficha',
+          component: () => import('../modules/trabajadores/views/FichaTrabajadorView.vue'),
+          meta: {
+            navKey: 'trabajadores',
+            title: 'Trabajador',
+            subtitle: 'Ficha del trabajador',
+          },
+        },
+        {
           path: 'usuarios',
           name: 'usuarios',
           component: () => import('../modules/usuarios/views/ListaUsuariosView.vue'),

@@ -13,6 +13,7 @@ import { AlimentacionModule } from './modules/alimentacion/alimentacion.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { ReportesModule } from './modules/reportes/reportes.module';
 import { UsuariosModule } from './modules/usuarios/usuarios.module';
+import { TrabajadoresModule } from './modules/trabajadores/trabajadores.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { UsuariosModule } from './modules/usuarios/usuarios.module';
     DashboardModule,
     ReportesModule,
     UsuariosModule,
+    TrabajadoresModule,
   ],
   providers: [
     {

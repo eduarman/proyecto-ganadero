@@ -93,6 +93,8 @@ model Negocio {
   suministrosRecurrentes SuministroRecurrente[]
   reportesGenerados      ReporteGenerado[]
   animalMovimientos      AnimalMovimiento[]
+  cargos                 Cargo[]
+  trabajadores           Trabajador[]
 
   @@map("negocios")
 }
@@ -895,4 +897,77 @@ model ReporteGenerado {
 
   @@index([tenantId, createdAt])
   @@map("reportes_generados")
+}
+
+// ---------------------------------------------------------------------------
+// Trabajadores — ver .claude/specs/trabajadores/design.md (Etapa 1: base)
+// ---------------------------------------------------------------------------
+
+enum EstadoCargo {
+  ACTIVO
+  INACTIVO
+}
+
+enum EstadoTrabajador {
+  ACTIVO
+  INACTIVO
+}
+
+enum TipoContratacion {
+  MENSUAL
+  JORNAL
+  POR_ACTIVIDAD
+  TEMPORAL
+  OTRO
+}
+
+enum ModalidadPago {
+  MENSUAL
+  SEMANAL
+  QUINCENAL
+  DIARIO
+  POR_ACTIVIDAD
+}
+
+model Cargo {
+  id        String      @id @default(uuid())
+  tenantId  String      @map("tenant_id")
+  nombre    String
+  estado    EstadoCargo @default(ACTIVO)
+  createdAt DateTime    @default(now()) @map("created_at")
+
+  negocio      Negocio      @relation(fields: [tenantId], references: [id])
+  trabajadores Trabajador[]
+
+  @@unique([tenantId, nombre])
+  @@map("cargos")
+}
+
+model Trabajador {
+  id                         String           @id @default(uuid())
+  tenantId                   String           @map("tenant_id")
+  nombres                    String
+  apellidos                  String
+  documento                  String
+  fechaNacimiento            DateTime?        @map("fecha_nacimiento")
+  telefono                   String?
+  email                      String?
+  direccion                  String?
+  contactoEmergenciaNombre   String?          @map("contacto_emergencia_nombre")
+  contactoEmergenciaTelefono String?          @map("contacto_emergencia_telefono")
+  cargoId                    String           @map("cargo_id")
+  fechaIngreso               DateTime         @map("fecha_ingreso")
+  tipoContratacion           TipoContratacion @map("tipo_contratacion")
+  modalidadPago              ModalidadPago    @map("modalidad_pago")
+  salarioOJornal             Decimal          @map("salario_o_jornal") @db.Decimal(12, 2)
+  estado                     EstadoTrabajador @default(ACTIVO)
+  createdAt                  DateTime         @default(now()) @map("created_at")
+  updatedAt                  DateTime         @updatedAt @map("updated_at")
+
+  negocio Negocio @relation(fields: [tenantId], references: [id])
+  cargo   Cargo   @relation(fields: [cargoId], references: [id])
+
+  @@unique([tenantId, documento])
+  @@index([tenantId, estado])
+  @@map("trabajadores")
 }

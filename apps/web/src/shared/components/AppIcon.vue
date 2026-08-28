@@ -72,6 +72,10 @@ const ICONS: Record<string, { strokeWidth?: number; inner: string }> = {
     inner:
       '<path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c6.5 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3.5 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><path d="M2 2l20 20"/><path d="M9.53 9.53a3 3 0 0 0 4.24 4.24"/>',
   },
+  briefcase: {
+    inner:
+      '<rect width="20" height="14" x="2" y="7" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>',
+  },
 };
 
 const props = withDefaults(
