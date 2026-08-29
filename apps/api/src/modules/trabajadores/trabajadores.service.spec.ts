@@ -18,7 +18,18 @@ function buildDeps() {
       create: jest.fn(),
       update: jest.fn(),
     },
+    potrero: {
+      findFirst: jest.fn(),
+    },
+    asignacion: {
+      findFirst: jest.fn().mockResolvedValue(null),
+      findMany: jest.fn().mockResolvedValue([]),
+      create: jest.fn(),
+      update: jest.fn(),
+    },
+    $transaction: undefined as any,
   };
+  prisma.$transaction = jest.fn((fn: any) => fn(prisma));
 
   const service = new TrabajadoresService(prisma as any);
   return { service, prisma };
@@ -174,5 +185,133 @@ describe('TrabajadoresService.activar / inactivar', () => {
     await service.activar(TENANT_A, 'trab-1');
 
     expect(prisma.trabajador.update).toHaveBeenCalledWith({ where: { id: 'trab-1' }, data: { estado: 'ACTIVO' } });
+  });
+});
+
+describe('TrabajadoresService.crearAsignacion', () => {
+  const dto = { cargoId: 'cargo-2', fechaInicio: '2026-08-01' };
+
+  it('lanza 404 si el trabajador no existe en el negocio', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.trabajador.findFirst.mockResolvedValue(null);
+
+    await expect(service.crearAsignacion(TENANT_A, 'trab-1', dto)).rejects.toThrow(NotFoundException);
+  });
+
+  it('rechaza con 400 si el trabajador está inactivo', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.trabajador.findFirst.mockResolvedValue({ id: 'trab-1', estado: 'INACTIVO' });
+
+    await expect(service.crearAsignacion(TENANT_A, 'trab-1', dto)).rejects.toThrow(BadRequestException);
+    expect(prisma.asignacion.create).not.toHaveBeenCalled();
+  });
+
+  it('rechaza con 400 si no viene cargo ni potrero', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.trabajador.findFirst.mockResolvedValue({ id: 'trab-1', estado: 'ACTIVO' });
+
+    await expect(
+      service.crearAsignacion(TENANT_A, 'trab-1', { fechaInicio: '2026-08-01' } as any),
+    ).rejects.toThrow(BadRequestException);
+    expect(prisma.asignacion.create).not.toHaveBeenCalled();
+  });
+
+  it('lanza 404 si el potrero no existe en el negocio', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.trabajador.findFirst.mockResolvedValue({ id: 'trab-1', estado: 'ACTIVO' });
+    prisma.potrero.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.crearAsignacion(TENANT_A, 'trab-1', { potreroId: 'potrero-1', fechaInicio: '2026-08-01' }),
+    ).rejects.toThrow(NotFoundException);
+  });
+
+  it('cierra la asignación abierta anterior y sincroniza trabajador.cargoId', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.trabajador.findFirst.mockResolvedValue({ id: 'trab-1', estado: 'ACTIVO' });
+    prisma.cargo.findFirst.mockResolvedValue({ id: 'cargo-2', estado: 'ACTIVO' });
+    prisma.asignacion.findFirst.mockResolvedValue({ id: 'asig-anterior', fechaFin: null });
+    prisma.asignacion.create.mockResolvedValue({
+      id: 'asig-nueva',
+      cargoId: 'cargo-2',
+      fechaInicio: new Date('2026-08-01'),
+      fechaFin: null,
+    });
+
+    const resultado = await service.crearAsignacion(TENANT_A, 'trab-1', dto);
+
+    expect(prisma.asignacion.update).toHaveBeenCalledWith({
+      where: { id: 'asig-anterior' },
+      data: { fechaFin: new Date('2026-08-01') },
+    });
+    expect(prisma.trabajador.update).toHaveBeenCalledWith({
+      where: { id: 'trab-1' },
+      data: { cargoId: 'cargo-2' },
+    });
+    expect(resultado.estado).toBe('VIGENTE');
+  });
+
+  it('no cierra ninguna asignación anterior si no había una abierta', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.trabajador.findFirst.mockResolvedValue({ id: 'trab-1', estado: 'ACTIVO' });
+    prisma.cargo.findFirst.mockResolvedValue({ id: 'cargo-2', estado: 'ACTIVO' });
+    prisma.asignacion.findFirst.mockResolvedValue(null);
+    prisma.asignacion.create.mockResolvedValue({
+      id: 'asig-nueva',
+      cargoId: 'cargo-2',
+      fechaInicio: new Date('2026-08-01'),
+      fechaFin: null,
+    });
+
+    await service.crearAsignacion(TENANT_A, 'trab-1', dto);
+
+    expect(prisma.asignacion.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('TrabajadoresService.finalizarAsignacion', () => {
+  it('lanza 404 si la asignación no existe en el negocio', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.asignacion.findFirst.mockResolvedValue(null);
+
+    await expect(service.finalizarAsignacion(TENANT_A, 'asig-1', {})).rejects.toThrow(NotFoundException);
+  });
+
+  it('rechaza con 400 si ya está finalizada', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.asignacion.findFirst.mockResolvedValue({ id: 'asig-1', fechaFin: new Date('2026-08-01') });
+
+    await expect(service.finalizarAsignacion(TENANT_A, 'asig-1', {})).rejects.toThrow(BadRequestException);
+    expect(prisma.asignacion.update).not.toHaveBeenCalled();
+  });
+
+  it('finaliza con la fecha indicada', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.asignacion.findFirst.mockResolvedValue({ id: 'asig-1', fechaFin: null });
+    prisma.asignacion.update.mockResolvedValue({ id: 'asig-1', fechaFin: new Date('2026-08-15') });
+
+    await service.finalizarAsignacion(TENANT_A, 'asig-1', { fechaFin: '2026-08-15' });
+
+    expect(prisma.asignacion.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'asig-1' }, data: { fechaFin: new Date('2026-08-15') } }),
+    );
+  });
+});
+
+describe('TrabajadoresService.listarAsignaciones', () => {
+  it('calcula el estado VIGENTE/FINALIZADA por fila', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.trabajador.findFirst.mockResolvedValue({ id: 'trab-1' });
+    prisma.asignacion.findMany.mockResolvedValue([
+      { id: 'asig-1', fechaFin: null },
+      { id: 'asig-2', fechaFin: new Date('2026-07-01') },
+    ]);
+
+    const resultado = await service.listarAsignaciones(TENANT_A, 'trab-1');
+
+    expect(resultado).toEqual([
+      { id: 'asig-1', fechaFin: null, estado: 'VIGENTE' },
+      { id: 'asig-2', fechaFin: new Date('2026-07-01'), estado: 'FINALIZADA' },
+    ]);
   });
 });

@@ -95,6 +95,7 @@ model Negocio {
   animalMovimientos      AnimalMovimiento[]
   cargos                 Cargo[]
   trabajadores           Trabajador[]
+  asignaciones           Asignacion[]
 
   @@map("negocios")
 }
@@ -383,6 +384,7 @@ model Potrero {
   suministrosRecurrentes SuministroRecurrente[]
   movimientosOrigen      AnimalMovimiento[]     @relation("MovimientoOrigen")
   movimientosDestino     AnimalMovimiento[]     @relation("MovimientoDestino")
+  asignacionesTrabajador Asignacion[]
 
   @@unique([tenantId, nombre])
   @@map("potreros")
@@ -938,6 +940,7 @@ model Cargo {
 
   negocio      Negocio      @relation(fields: [tenantId], references: [id])
   trabajadores Trabajador[]
+  asignaciones Asignacion[]
 
   @@unique([tenantId, nombre])
   @@map("cargos")
@@ -964,10 +967,31 @@ model Trabajador {
   createdAt                  DateTime         @default(now()) @map("created_at")
   updatedAt                  DateTime         @updatedAt @map("updated_at")
 
-  negocio Negocio @relation(fields: [tenantId], references: [id])
-  cargo   Cargo   @relation(fields: [cargoId], references: [id])
+  negocio      Negocio      @relation(fields: [tenantId], references: [id])
+  cargo        Cargo        @relation(fields: [cargoId], references: [id])
+  asignaciones Asignacion[]
 
   @@unique([tenantId, documento])
   @@index([tenantId, estado])
   @@map("trabajadores")
+}
+
+model Asignacion {
+  id            String    @id @default(uuid())
+  tenantId      String    @map("tenant_id")
+  trabajadorId  String    @map("trabajador_id")
+  cargoId       String?   @map("cargo_id")
+  potreroId     String?   @map("potrero_id")
+  fechaInicio   DateTime  @map("fecha_inicio")
+  fechaFin      DateTime? @map("fecha_fin")
+  observaciones String?
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  negocio    Negocio    @relation(fields: [tenantId], references: [id])
+  trabajador Trabajador @relation(fields: [trabajadorId], references: [id])
+  cargo      Cargo?     @relation(fields: [cargoId], references: [id])
+  potrero    Potrero?   @relation(fields: [potreroId], references: [id])
+
+  @@index([tenantId, trabajadorId])
+  @@map("asignaciones")
 }

@@ -7,8 +7,10 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { JwtPayload } from '../auth/jwt-payload.interface';
 import { ActualizarTrabajadorDto } from './dto/actualizar-trabajador.dto';
+import { CrearAsignacionDto } from './dto/crear-asignacion.dto';
 import { CrearCargoDto } from './dto/crear-cargo.dto';
 import { CrearTrabajadorDto } from './dto/crear-trabajador.dto';
+import { FinalizarAsignacionDto } from './dto/finalizar-asignacion.dto';
 import { ListarTrabajadoresQueryDto } from './dto/listar-trabajadores-query.dto';
 import { TrabajadoresService } from './trabajadores.service';
 
@@ -66,5 +68,24 @@ export class TrabajadoresController {
   @Patch(':id/inactivar')
   inactivar(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     return this.trabajadoresService.inactivar(user.tenantId as string, id);
+  }
+
+  @Get(':id/asignaciones')
+  listarAsignaciones(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.trabajadoresService.listarAsignaciones(user.tenantId as string, id);
+  }
+
+  @Post(':id/asignaciones')
+  crearAsignacion(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Body() dto: CrearAsignacionDto) {
+    return this.trabajadoresService.crearAsignacion(user.tenantId as string, id, dto);
+  }
+
+  @Patch('asignaciones/:asignacionId/finalizar')
+  finalizarAsignacion(
+    @CurrentUser() user: JwtPayload,
+    @Param('asignacionId') asignacionId: string,
+    @Body() dto: FinalizarAsignacionDto,
+  ) {
+    return this.trabajadoresService.finalizarAsignacion(user.tenantId as string, asignacionId, dto);
   }
 }

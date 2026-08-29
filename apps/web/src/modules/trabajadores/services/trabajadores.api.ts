@@ -78,6 +78,35 @@ export interface ListaTrabajadores {
   limit: number;
 }
 
+export type EstadoAsignacion = 'VIGENTE' | 'FINALIZADA';
+
+export interface Asignacion {
+  id: string;
+  tenantId: string;
+  trabajadorId: string;
+  cargoId: string | null;
+  potreroId: string | null;
+  cargo: Cargo | null;
+  potrero: { id: string; nombre: string } | null;
+  fechaInicio: string;
+  fechaFin: string | null;
+  observaciones: string | null;
+  createdAt: string;
+  estado: EstadoAsignacion;
+}
+
+export interface CrearAsignacionPayload {
+  cargoId?: string;
+  potreroId?: string;
+  fechaInicio: string;
+  fechaFin?: string;
+  observaciones?: string;
+}
+
+export interface FinalizarAsignacionPayload {
+  fechaFin?: string;
+}
+
 export const trabajadoresApi = {
   listarCargos() {
     return http.get<Cargo[]>('/trabajadores/cargos').then((r) => r.data);
@@ -108,5 +137,14 @@ export const trabajadoresApi = {
   },
   inactivar(id: string) {
     return http.patch<Trabajador>(`/trabajadores/${id}/inactivar`);
+  },
+  listarAsignaciones(trabajadorId: string) {
+    return http.get<Asignacion[]>(`/trabajadores/${trabajadorId}/asignaciones`).then((r) => r.data);
+  },
+  crearAsignacion(trabajadorId: string, payload: CrearAsignacionPayload) {
+    return http.post<Asignacion>(`/trabajadores/${trabajadorId}/asignaciones`, payload).then((r) => r.data);
+  },
+  finalizarAsignacion(asignacionId: string, payload: FinalizarAsignacionPayload = {}) {
+    return http.patch<Asignacion>(`/trabajadores/asignaciones/${asignacionId}/finalizar`, payload).then((r) => r.data);
   },
 };

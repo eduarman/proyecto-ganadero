@@ -1,18 +1,27 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { isAxiosError } from 'axios';
 import { useRoute, useRouter } from 'vue-router';
 import { formatFecha } from '../../../shared/utils/fecha';
 import SectionCard from '../../../shared/components/SectionCard.vue';
 import Pill from '../../../shared/components/Pill.vue';
+import { potrerosApi, type Potrero } from '../../potreros/services/potreros.api';
 import {
   trabajadoresApi,
   type ActualizarTrabajadorPayload,
+  type Asignacion,
   type Cargo,
+  type CrearAsignacionPayload,
   type ModalidadPago,
   type TipoContratacion,
   type TrabajadorConAntiguedad,
 } from '../services/trabajadores.api';
+
+type FichaTab = 'general' | 'asignaciones';
+const FICHA_TABS: { key: FichaTab; label: string }[] = [
+  { key: 'general', label: 'Información general' },
+  { key: 'asignaciones', label: 'Asignaciones' },
+];
 
 const TIPO_CONTRATACION_LABELS: Record<TipoContratacion, string> = {
   MENSUAL: 'Mensual',
@@ -37,6 +46,8 @@ const id = String(route.params.id);
 const loading = ref(true);
 const trabajador = ref<TrabajadorConAntiguedad | null>(null);
 const cargos = ref<Cargo[]>([]);
+const potrerosActivos = ref<Potrero[]>([]);
+const asignaciones = ref<Asignacion[]>([]);
 
 const editando = ref(false);
 const form = ref<ActualizarTrabajadorPayload>({});
@@ -44,21 +55,30 @@ const saving = ref(false);
 const errorMsg = ref('');
 const cambiandoEstado = ref(false);
 
+const fichaTab = ref<FichaTab>('general');
+
 async function cargar() {
   loading.value = true;
   try {
-    const [trabajadorResp, cargosResp] = await Promise.all([
+    const [trabajadorResp, cargosResp, potrerosResp, asignacionesResp] = await Promise.all([
       trabajadoresApi.obtener(id),
       trabajadoresApi.listarCargos(),
+      potrerosApi.listar(),
+      trabajadoresApi.listarAsignaciones(id),
     ]);
     trabajador.value = trabajadorResp;
     cargos.value = cargosResp;
+    potrerosActivos.value = potrerosResp.filter((p) => p.estado === 'ACTIVO');
+    asignaciones.value = asignacionesResp;
   } finally {
     loading.value = false;
   }
 }
 
 onMounted(cargar);
+
+const asignacionVigente = computed(() => asignaciones.value.find((a) => a.estado === 'VIGENTE') ?? null);
+const asignacionesHistorial = computed(() => asignaciones.value.filter((a) => a.estado === 'FINALIZADA'));
 
 function abrirEdicion() {
   if (!trabajador.value) return;
@@ -129,6 +149,63 @@ function formatAntiguedad(a: { anios: number; meses: number }): string {
   partes.push(`${a.meses} mes${a.meses === 1 ? '' : 'es'}`);
   return partes.join(', ');
 }
+
+// --- Asignaciones ----------------------------------------------------------
+
+const showAsignacionForm = ref(false);
+const asignacionForm = ref<CrearAsignacionPayload>({
+  cargoId: '',
+  potreroId: '',
+  fechaInicio: new Date().toISOString().slice(0, 10),
+  fechaFin: '',
+  observaciones: '',
+});
+const savingAsignacion = ref(false);
+const asignacionError = ref('');
+const finalizandoId = ref<string | null>(null);
+
+function resetAsignacionForm() {
+  asignacionForm.value = {
+    cargoId: '',
+    potreroId: '',
+    fechaInicio: new Date().toISOString().slice(0, 10),
+    fechaFin: '',
+    observaciones: '',
+  };
+}
+
+async function guardarAsignacion() {
+  asignacionError.value = '';
+  savingAsignacion.value = true;
+  try {
+    await trabajadoresApi.crearAsignacion(id, {
+      cargoId: asignacionForm.value.cargoId || undefined,
+      potreroId: asignacionForm.value.potreroId || undefined,
+      fechaInicio: asignacionForm.value.fechaInicio,
+      fechaFin: asignacionForm.value.fechaFin || undefined,
+      observaciones: asignacionForm.value.observaciones || undefined,
+    });
+    resetAsignacionForm();
+    showAsignacionForm.value = false;
+    await cargar();
+  } catch (error) {
+    asignacionError.value = isAxiosError(error)
+      ? ((error.response?.data as { message?: string } | undefined)?.message ?? 'No se pudo guardar la asignación.')
+      : 'No se pudo guardar la asignación.';
+  } finally {
+    savingAsignacion.value = false;
+  }
+}
+
+async function finalizarAsignacion(asignacionId: string) {
+  finalizandoId.value = asignacionId;
+  try {
+    await trabajadoresApi.finalizarAsignacion(asignacionId);
+    await cargar();
+  } finally {
+    finalizandoId.value = null;
+  }
+}
 </script>
 
 <template>
@@ -171,7 +248,20 @@ function formatAntiguedad(a: { anios: number; meses: number }): string {
         </div>
       </SectionCard>
 
-      <SectionCard v-if="!editando" title="Información general">
+      <div class="ficha-trabajador-view__tabs">
+        <button
+          v-for="t in FICHA_TABS"
+          :key="t.key"
+          type="button"
+          class="ficha-trabajador-view__tab"
+          :class="{ 'ficha-trabajador-view__tab--active': fichaTab === t.key }"
+          @click="fichaTab = t.key"
+        >
+          {{ t.label }}
+        </button>
+      </div>
+
+      <SectionCard v-if="fichaTab === 'general' && !editando" title="Información general">
         <div class="ficha-trabajador-view__grid">
           <div class="ficha-trabajador-view__stat">
             <div class="ficha-trabajador-view__stat-label">Documento</div>
@@ -217,7 +307,7 @@ function formatAntiguedad(a: { anios: number; meses: number }): string {
         </div>
       </SectionCard>
 
-      <SectionCard v-else title="Editar información general">
+      <SectionCard v-else-if="fichaTab === 'general'" title="Editar información general">
         <div v-if="errorMsg" class="ficha-trabajador-view__error">{{ errorMsg }}</div>
         <div class="ficha-trabajador-view__form-grid">
           <div class="ficha-trabajador-view__field">
@@ -288,6 +378,88 @@ function formatAntiguedad(a: { anios: number; meses: number }): string {
           <button type="button" class="ficha-trabajador-view__submit" :disabled="saving" @click="guardar">
             {{ saving ? 'Guardando…' : 'Guardar cambios' }}
           </button>
+        </div>
+      </SectionCard>
+
+      <SectionCard v-else-if="fichaTab === 'asignaciones'" title="Asignaciones">
+        <template #actions>
+          <button type="button" class="ficha-trabajador-view__btn-ghost" @click="showAsignacionForm = !showAsignacionForm">
+            {{ showAsignacionForm ? 'Cancelar' : '+ Nueva asignación' }}
+          </button>
+        </template>
+
+        <div v-if="showAsignacionForm" class="ficha-trabajador-view__sub-form">
+          <div v-if="asignacionError" class="ficha-trabajador-view__error">{{ asignacionError }}</div>
+          <div class="ficha-trabajador-view__muted">Indicá un cargo, un potrero, o ambos.</div>
+          <div class="ficha-trabajador-view__form-grid">
+            <div class="ficha-trabajador-view__field">
+              <label>Cargo</label>
+              <select v-model="asignacionForm.cargoId">
+                <option value="">Sin cambio de cargo</option>
+                <option v-for="c in cargos" :key="c.id" :value="c.id">{{ c.nombre }}</option>
+              </select>
+            </div>
+            <div class="ficha-trabajador-view__field">
+              <label>Potrero</label>
+              <select v-model="asignacionForm.potreroId">
+                <option value="">Sin potrero</option>
+                <option v-for="p in potrerosActivos" :key="p.id" :value="p.id">{{ p.nombre }}</option>
+              </select>
+            </div>
+            <div class="ficha-trabajador-view__field">
+              <label>Fecha de inicio</label>
+              <input v-model="asignacionForm.fechaInicio" type="date" />
+            </div>
+            <div class="ficha-trabajador-view__field">
+              <label>Fecha de fin (opcional)</label>
+              <input v-model="asignacionForm.fechaFin" type="date" />
+            </div>
+            <div class="ficha-trabajador-view__field">
+              <label>Observaciones</label>
+              <input v-model="asignacionForm.observaciones" />
+            </div>
+          </div>
+          <button
+            type="button"
+            class="ficha-trabajador-view__submit"
+            :disabled="savingAsignacion || (!asignacionForm.cargoId && !asignacionForm.potreroId)"
+            @click="guardarAsignacion"
+          >
+            {{ savingAsignacion ? 'Guardando…' : 'Guardar asignación' }}
+          </button>
+        </div>
+
+        <div v-if="asignacionVigente" class="ficha-trabajador-view__vigente">
+          <div class="ficha-trabajador-view__vigente-title">Asignación vigente</div>
+          <div class="ficha-trabajador-view__vigente-row">
+            <div>
+              <span v-if="asignacionVigente.cargo">Cargo: {{ asignacionVigente.cargo.nombre }}</span>
+              <span v-if="asignacionVigente.cargo && asignacionVigente.potrero"> · </span>
+              <span v-if="asignacionVigente.potrero">Potrero: {{ asignacionVigente.potrero.nombre }}</span>
+              <div class="ficha-trabajador-view__muted">Desde el {{ formatFecha(asignacionVigente.fechaInicio) }}</div>
+            </div>
+            <button
+              type="button"
+              class="ficha-trabajador-view__btn-ghost"
+              :disabled="finalizandoId === asignacionVigente.id"
+              @click="finalizarAsignacion(asignacionVigente.id)"
+            >
+              Finalizar
+            </button>
+          </div>
+        </div>
+        <div v-else class="ficha-trabajador-view__muted">Sin asignación vigente.</div>
+
+        <div v-if="asignacionesHistorial.length > 0" class="ficha-trabajador-view__historial">
+          <div class="ficha-trabajador-view__vigente-title">Historial</div>
+          <div v-for="a in asignacionesHistorial" :key="a.id" class="ficha-trabajador-view__historial-row">
+            <span v-if="a.cargo">{{ a.cargo.nombre }}</span>
+            <span v-if="a.potrero">{{ a.potrero.nombre }}</span>
+            <span class="ficha-trabajador-view__muted">
+              {{ formatFecha(a.fechaInicio) }} — {{ a.fechaFin ? formatFecha(a.fechaFin) : '' }}
+            </span>
+            <span v-if="a.observaciones" class="ficha-trabajador-view__muted">{{ a.observaciones }}</span>
+          </div>
         </div>
       </SectionCard>
     </template>
@@ -435,6 +607,76 @@ function formatAntiguedad(a: { anios: number; meses: number }): string {
   &__muted {
     color: rgba(40, 54, 24, 0.55);
     font-size: 0.78rem;
+  }
+
+  &__tabs {
+    display: flex;
+    gap: 0.5rem;
+    overflow-x: auto;
+  }
+
+  &__tab {
+    background: var(--color-white);
+    border: none;
+    border-radius: 999px;
+    padding: 0.55rem 1.1rem;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: rgba(40, 54, 24, 0.6);
+    cursor: pointer;
+    white-space: nowrap;
+    font-family: inherit;
+
+    &--active {
+      background: var(--color-primary);
+      color: var(--color-bg);
+    }
+  }
+
+  &__sub-form {
+    background: var(--color-bg);
+    border-radius: 14px;
+    padding: 0.85rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    margin-bottom: 0.85rem;
+  }
+
+  &__vigente {
+    background: var(--color-bg);
+    border-radius: 14px;
+    padding: 0.85rem;
+    margin-bottom: 0.85rem;
+  }
+
+  &__vigente-title {
+    font-weight: 800;
+    font-size: 0.85rem;
+    margin-bottom: 0.5rem;
+  }
+
+  &__vigente-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    font-size: 0.85rem;
+  }
+
+  &__historial {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  &__historial-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    padding: 0.6rem 0;
+    border-top: 1px solid #f2efdd;
+    font-size: 0.82rem;
   }
 }
 </style>

@@ -2,8 +2,10 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ActualizarTrabajadorDto } from './dto/actualizar-trabajador.dto';
+import { CrearAsignacionDto } from './dto/crear-asignacion.dto';
 import { CrearCargoDto } from './dto/crear-cargo.dto';
 import { CrearTrabajadorDto } from './dto/crear-trabajador.dto';
+import { FinalizarAsignacionDto } from './dto/finalizar-asignacion.dto';
 import { ListarTrabajadoresQueryDto } from './dto/listar-trabajadores-query.dto';
 
 // Antigüedad se calcula al leer, no se persiste (mismo criterio que
@@ -201,5 +203,88 @@ export class TrabajadoresService {
   async inactivar(tenantId: string, id: string) {
     await this.obtenerSinAntiguedad(tenantId, id);
     return this.prisma.trabajador.update({ where: { id }, data: { estado: 'INACTIVO' } });
+  }
+
+  // --- Asignaciones ----------------------------------------------------------
+  // Mismo patrón que GanadoService.moverAnimales(): historial append-only
+  // (asignaciones) + un puntero "actual" denormalizado (trabajador.cargoId),
+  // actualizados atómicamente. A diferencia de Animal.potreroActualId, no se
+  // agrega un campo "potrero actual" a Trabajador — la asignación a potrero
+  // solo se consulta desde la propia ficha, no justifica la denormalización.
+
+  async crearAsignacion(tenantId: string, trabajadorId: string, dto: CrearAsignacionDto) {
+    const trabajador = await this.obtenerSinAntiguedad(tenantId, trabajadorId);
+    if (trabajador.estado !== 'ACTIVO') {
+      throw new BadRequestException('No se pueden crear asignaciones para un trabajador inactivo.');
+    }
+    if (!dto.cargoId && !dto.potreroId) {
+      throw new BadRequestException('La asignación debe indicar al menos un cargo o un potrero.');
+    }
+    if (dto.cargoId) {
+      await this.assertCargoValido(tenantId, dto.cargoId);
+    }
+    if (dto.potreroId) {
+      const potrero = await this.prisma.potrero.findFirst({ where: { id: dto.potreroId, tenantId } });
+      if (!potrero) {
+        throw new NotFoundException('Potrero no encontrado.');
+      }
+      if (potrero.estado !== 'ACTIVO') {
+        throw new BadRequestException('El potrero seleccionado está inactivo.');
+      }
+    }
+
+    const fechaInicio = new Date(dto.fechaInicio);
+    const abierta = await this.prisma.asignacion.findFirst({
+      where: { tenantId, trabajadorId, fechaFin: null },
+    });
+
+    const nueva = await this.prisma.$transaction(async (tx) => {
+      if (abierta) {
+        await tx.asignacion.update({ where: { id: abierta.id }, data: { fechaFin: fechaInicio } });
+      }
+      const creada = await tx.asignacion.create({
+        data: {
+          tenantId,
+          trabajadorId,
+          cargoId: dto.cargoId,
+          potreroId: dto.potreroId,
+          fechaInicio,
+          fechaFin: dto.fechaFin ? new Date(dto.fechaFin) : null,
+          observaciones: dto.observaciones,
+        },
+        include: { cargo: true, potrero: true },
+      });
+      if (dto.cargoId) {
+        await tx.trabajador.update({ where: { id: trabajadorId }, data: { cargoId: dto.cargoId } });
+      }
+      return creada;
+    });
+
+    return { ...nueva, estado: nueva.fechaFin ? 'FINALIZADA' : 'VIGENTE' };
+  }
+
+  async finalizarAsignacion(tenantId: string, id: string, dto: FinalizarAsignacionDto) {
+    const asignacion = await this.prisma.asignacion.findFirst({ where: { id, tenantId } });
+    if (!asignacion) {
+      throw new NotFoundException('Asignación no encontrada.');
+    }
+    if (asignacion.fechaFin) {
+      throw new BadRequestException('La asignación ya está finalizada.');
+    }
+    return this.prisma.asignacion.update({
+      where: { id },
+      data: { fechaFin: dto.fechaFin ? new Date(dto.fechaFin) : new Date() },
+      include: { cargo: true, potrero: true },
+    });
+  }
+
+  async listarAsignaciones(tenantId: string, trabajadorId: string) {
+    await this.obtenerSinAntiguedad(tenantId, trabajadorId);
+    const asignaciones = await this.prisma.asignacion.findMany({
+      where: { tenantId, trabajadorId },
+      include: { cargo: true, potrero: true },
+      orderBy: { fechaInicio: 'desc' },
+    });
+    return asignaciones.map((a) => ({ ...a, estado: a.fechaFin ? 'FINALIZADA' : 'VIGENTE' }));
   }
 }
