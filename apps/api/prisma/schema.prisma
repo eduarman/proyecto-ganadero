@@ -96,6 +96,7 @@ model Negocio {
   cargos                 Cargo[]
   trabajadores           Trabajador[]
   asignaciones           Asignacion[]
+  asistencias            Asistencia[]
 
   @@map("negocios")
 }
@@ -126,6 +127,7 @@ model Usuario {
   suministrosRecurrentesCreados SuministroRecurrente[]
   reportesGenerados      ReporteGenerado[]
   movimientosRegistrados AnimalMovimiento[]
+  asistenciasRegistradas Asistencia[]
   invitacionesEnviadas   Invitacion[]
 
   @@map("usuarios")
@@ -970,10 +972,42 @@ model Trabajador {
   negocio      Negocio      @relation(fields: [tenantId], references: [id])
   cargo        Cargo        @relation(fields: [cargoId], references: [id])
   asignaciones Asignacion[]
+  asistencias  Asistencia[]
 
   @@unique([tenantId, documento])
   @@index([tenantId, estado])
   @@map("trabajadores")
+}
+
+enum EstadoAsistencia {
+  PRESENTE
+  AUSENTE
+  PERMISO
+  VACACIONES
+  FALTA_JUSTIFICADA
+  FALTA_INJUSTIFICADA
+}
+
+model Asistencia {
+  id              String           @id @default(uuid())
+  tenantId        String           @map("tenant_id")
+  trabajadorId    String           @map("trabajador_id")
+  fecha           DateTime
+  estado          EstadoAsistencia
+  horaEntrada     String?          @map("hora_entrada")
+  horaSalida      String?          @map("hora_salida")
+  tipoJornada     String?          @map("tipo_jornada")
+  jornalRealizado Decimal?         @map("jornal_realizado") @db.Decimal(5, 2)
+  observaciones   String?
+  registradoPorId String           @map("registrado_por")
+  createdAt       DateTime         @default(now()) @map("created_at")
+
+  negocio       Negocio    @relation(fields: [tenantId], references: [id])
+  trabajador    Trabajador @relation(fields: [trabajadorId], references: [id])
+  registradoPor Usuario    @relation(fields: [registradoPorId], references: [id])
+
+  @@unique([tenantId, trabajadorId, fecha])
+  @@map("asistencias")
 }
 
 model Asignacion {

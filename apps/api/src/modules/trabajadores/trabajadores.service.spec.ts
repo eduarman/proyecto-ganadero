@@ -27,6 +27,12 @@ function buildDeps() {
       create: jest.fn(),
       update: jest.fn(),
     },
+    asistencia: {
+      findUnique: jest.fn().mockResolvedValue(null),
+      findMany: jest.fn().mockResolvedValue([]),
+      create: jest.fn(),
+      update: jest.fn(),
+    },
     $transaction: undefined as any,
   };
   prisma.$transaction = jest.fn((fn: any) => fn(prisma));
@@ -313,5 +319,117 @@ describe('TrabajadoresService.listarAsignaciones', () => {
       { id: 'asig-1', fechaFin: null, estado: 'VIGENTE' },
       { id: 'asig-2', fechaFin: new Date('2026-07-01'), estado: 'FINALIZADA' },
     ]);
+  });
+});
+
+describe('TrabajadoresService.crearAsistencia', () => {
+  const dto = { fecha: '2026-08-01', estado: 'PRESENTE' as const };
+
+  it('rechaza con 400 si el trabajador está inactivo', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.trabajador.findFirst.mockResolvedValue({ id: 'trab-1', estado: 'INACTIVO' });
+
+    await expect(service.crearAsistencia(TENANT_A, 'trab-1', dto, 'user-1')).rejects.toThrow(BadRequestException);
+    expect(prisma.asistencia.create).not.toHaveBeenCalled();
+  });
+
+  it('rechaza con 400 si la fecha es futura', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.trabajador.findFirst.mockResolvedValue({ id: 'trab-1', estado: 'ACTIVO' });
+    const manana = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+    await expect(
+      service.crearAsistencia(TENANT_A, 'trab-1', { ...dto, fecha: manana }, 'user-1'),
+    ).rejects.toThrow(BadRequestException);
+    expect(prisma.asistencia.create).not.toHaveBeenCalled();
+  });
+
+  it('rechaza con 400 si la hora de salida es anterior a la de entrada', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.trabajador.findFirst.mockResolvedValue({ id: 'trab-1', estado: 'ACTIVO' });
+
+    await expect(
+      service.crearAsistencia(
+        TENANT_A,
+        'trab-1',
+        { ...dto, horaEntrada: '17:00', horaSalida: '08:00' },
+        'user-1',
+      ),
+    ).rejects.toThrow(BadRequestException);
+    expect(prisma.asistencia.create).not.toHaveBeenCalled();
+  });
+
+  it('rechaza con 409 si ya existe un registro para esa fecha sin confirmar', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.trabajador.findFirst.mockResolvedValue({ id: 'trab-1', estado: 'ACTIVO' });
+    prisma.asistencia.findUnique.mockResolvedValue({ id: 'asis-1' });
+
+    await expect(service.crearAsistencia(TENANT_A, 'trab-1', dto, 'user-1')).rejects.toThrow(ConflictException);
+    expect(prisma.asistencia.create).not.toHaveBeenCalled();
+    expect(prisma.asistencia.update).not.toHaveBeenCalled();
+  });
+
+  it('reemplaza (update) el registro existente cuando confirmar es true', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.trabajador.findFirst.mockResolvedValue({ id: 'trab-1', estado: 'ACTIVO' });
+    prisma.asistencia.findUnique.mockResolvedValue({ id: 'asis-1' });
+    prisma.asistencia.update.mockResolvedValue({ id: 'asis-1', horaEntrada: null, horaSalida: null });
+
+    await service.crearAsistencia(TENANT_A, 'trab-1', { ...dto, confirmar: true }, 'user-1');
+
+    expect(prisma.asistencia.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'asis-1' } }),
+    );
+    expect(prisma.asistencia.create).not.toHaveBeenCalled();
+  });
+
+  it('crea el registro y calcula horasTrabajadas cuando no existe uno previo', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.trabajador.findFirst.mockResolvedValue({ id: 'trab-1', estado: 'ACTIVO' });
+    prisma.asistencia.findUnique.mockResolvedValue(null);
+    prisma.asistencia.create.mockResolvedValue({
+      id: 'asis-1',
+      horaEntrada: '08:00',
+      horaSalida: '16:30',
+    });
+
+    const resultado = await service.crearAsistencia(
+      TENANT_A,
+      'trab-1',
+      { ...dto, horaEntrada: '08:00', horaSalida: '16:30' },
+      'user-1',
+    );
+
+    expect(resultado.horasTrabajadas).toBe(8.5);
+  });
+
+  it('devuelve horasTrabajadas null si falta alguna de las dos horas', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.trabajador.findFirst.mockResolvedValue({ id: 'trab-1', estado: 'ACTIVO' });
+    prisma.asistencia.findUnique.mockResolvedValue(null);
+    prisma.asistencia.create.mockResolvedValue({ id: 'asis-1', horaEntrada: '08:00', horaSalida: null });
+
+    const resultado = await service.crearAsistencia(TENANT_A, 'trab-1', { ...dto, horaEntrada: '08:00' }, 'user-1');
+
+    expect(resultado.horasTrabajadas).toBeNull();
+  });
+});
+
+describe('TrabajadoresService.listarAsistenciaDelDia', () => {
+  it('cruza los trabajadores activos con su registro del día, dejando null si no tienen', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.trabajador.findMany.mockResolvedValue([
+      { id: 'trab-1', nombres: 'Ana' },
+      { id: 'trab-2', nombres: 'Beto' },
+    ]);
+    prisma.asistencia.findMany.mockResolvedValue([
+      { id: 'asis-1', trabajadorId: 'trab-1', horaEntrada: '08:00', horaSalida: '12:00' },
+    ]);
+
+    const resultado = await service.listarAsistenciaDelDia(TENANT_A, '2026-08-01');
+
+    expect(resultado).toHaveLength(2);
+    expect(resultado[0].asistencia?.horasTrabajadas).toBe(4);
+    expect(resultado[1].asistencia).toBeNull();
   });
 });

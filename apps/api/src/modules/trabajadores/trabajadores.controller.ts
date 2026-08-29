@@ -8,9 +8,11 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { JwtPayload } from '../auth/jwt-payload.interface';
 import { ActualizarTrabajadorDto } from './dto/actualizar-trabajador.dto';
 import { CrearAsignacionDto } from './dto/crear-asignacion.dto';
+import { CrearAsistenciaDto } from './dto/crear-asistencia.dto';
 import { CrearCargoDto } from './dto/crear-cargo.dto';
 import { CrearTrabajadorDto } from './dto/crear-trabajador.dto';
 import { FinalizarAsignacionDto } from './dto/finalizar-asignacion.dto';
+import { ListarAsistenciaDiaQueryDto } from './dto/listar-asistencia-dia-query.dto';
 import { ListarTrabajadoresQueryDto } from './dto/listar-trabajadores-query.dto';
 import { TrabajadoresService } from './trabajadores.service';
 
@@ -38,6 +40,11 @@ export class TrabajadoresController {
   @Patch('cargos/:id/inactivar')
   inactivarCargo(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     return this.trabajadoresService.inactivarCargo(user.tenantId as string, id);
+  }
+
+  @Get('asistencias/dia')
+  listarAsistenciaDelDia(@CurrentUser() user: JwtPayload, @Query() query: ListarAsistenciaDiaQueryDto) {
+    return this.trabajadoresService.listarAsistenciaDelDia(user.tenantId as string, query.fecha);
   }
 
   @Get()
@@ -87,5 +94,15 @@ export class TrabajadoresController {
     @Body() dto: FinalizarAsignacionDto,
   ) {
     return this.trabajadoresService.finalizarAsignacion(user.tenantId as string, asignacionId, dto);
+  }
+
+  @Get(':id/asistencias')
+  listarAsistencias(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.trabajadoresService.listarAsistencias(user.tenantId as string, id);
+  }
+
+  @Post(':id/asistencias')
+  crearAsistencia(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Body() dto: CrearAsistenciaDto) {
+    return this.trabajadoresService.crearAsistencia(user.tenantId as string, id, dto, user.sub);
   }
 }

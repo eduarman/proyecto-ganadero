@@ -140,6 +140,16 @@ const router = createRouter({
           },
         },
         {
+          path: 'trabajadores/asistencia',
+          name: 'trabajadores-asistencia',
+          component: () => import('../modules/trabajadores/views/AsistenciaView.vue'),
+          meta: {
+            navKey: 'trabajadores',
+            title: 'Asistencia del día',
+            subtitle: 'Registro diario de asistencia de la cuadrilla',
+          },
+        },
+        {
           path: 'trabajadores/:id',
           name: 'trabajador-ficha',
           component: () => import('../modules/trabajadores/views/FichaTrabajadorView.vue'),

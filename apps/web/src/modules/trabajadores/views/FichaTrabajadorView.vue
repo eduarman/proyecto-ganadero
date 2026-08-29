@@ -10,18 +10,31 @@ import {
   trabajadoresApi,
   type ActualizarTrabajadorPayload,
   type Asignacion,
+  type Asistencia,
   type Cargo,
   type CrearAsignacionPayload,
+  type CrearAsistenciaPayload,
+  type EstadoAsistencia,
   type ModalidadPago,
   type TipoContratacion,
   type TrabajadorConAntiguedad,
 } from '../services/trabajadores.api';
 
-type FichaTab = 'general' | 'asignaciones';
+type FichaTab = 'general' | 'asignaciones' | 'asistencia';
 const FICHA_TABS: { key: FichaTab; label: string }[] = [
   { key: 'general', label: 'Información general' },
   { key: 'asignaciones', label: 'Asignaciones' },
+  { key: 'asistencia', label: 'Asistencia' },
 ];
+
+const ESTADO_ASISTENCIA_LABELS: Record<EstadoAsistencia, string> = {
+  PRESENTE: 'Presente',
+  AUSENTE: 'Ausente',
+  PERMISO: 'Permiso',
+  VACACIONES: 'Vacaciones',
+  FALTA_JUSTIFICADA: 'Falta justificada',
+  FALTA_INJUSTIFICADA: 'Falta injustificada',
+};
 
 const TIPO_CONTRATACION_LABELS: Record<TipoContratacion, string> = {
   MENSUAL: 'Mensual',
@@ -48,6 +61,7 @@ const trabajador = ref<TrabajadorConAntiguedad | null>(null);
 const cargos = ref<Cargo[]>([]);
 const potrerosActivos = ref<Potrero[]>([]);
 const asignaciones = ref<Asignacion[]>([]);
+const asistencias = ref<Asistencia[]>([]);
 
 const editando = ref(false);
 const form = ref<ActualizarTrabajadorPayload>({});
@@ -60,16 +74,18 @@ const fichaTab = ref<FichaTab>('general');
 async function cargar() {
   loading.value = true;
   try {
-    const [trabajadorResp, cargosResp, potrerosResp, asignacionesResp] = await Promise.all([
+    const [trabajadorResp, cargosResp, potrerosResp, asignacionesResp, asistenciasResp] = await Promise.all([
       trabajadoresApi.obtener(id),
       trabajadoresApi.listarCargos(),
       potrerosApi.listar(),
       trabajadoresApi.listarAsignaciones(id),
+      trabajadoresApi.listarAsistencias(id),
     ]);
     trabajador.value = trabajadorResp;
     cargos.value = cargosResp;
     potrerosActivos.value = potrerosResp.filter((p) => p.estado === 'ACTIVO');
     asignaciones.value = asignacionesResp;
+    asistencias.value = asistenciasResp;
   } finally {
     loading.value = false;
   }
@@ -204,6 +220,62 @@ async function finalizarAsignacion(asignacionId: string) {
     await cargar();
   } finally {
     finalizandoId.value = null;
+  }
+}
+
+// --- Asistencia --------------------------------------------------------
+
+const showAsistenciaForm = ref(false);
+const asistenciaForm = ref({
+  fecha: new Date().toISOString().slice(0, 10),
+  estado: 'PRESENTE' as EstadoAsistencia,
+  horaEntrada: '',
+  horaSalida: '',
+  jornalRealizado: '',
+  observaciones: '',
+});
+const savingAsistencia = ref(false);
+const asistenciaError = ref('');
+const asistenciaDuplicada = ref(false);
+
+function resetAsistenciaForm() {
+  asistenciaForm.value = {
+    fecha: new Date().toISOString().slice(0, 10),
+    estado: 'PRESENTE',
+    horaEntrada: '',
+    horaSalida: '',
+    jornalRealizado: '',
+    observaciones: '',
+  };
+}
+
+async function guardarAsistencia(confirmar = false) {
+  asistenciaError.value = '';
+  savingAsistencia.value = true;
+  const payload: CrearAsistenciaPayload = {
+    fecha: asistenciaForm.value.fecha,
+    estado: asistenciaForm.value.estado,
+    horaEntrada: asistenciaForm.value.horaEntrada || undefined,
+    horaSalida: asistenciaForm.value.horaSalida || undefined,
+    jornalRealizado: asistenciaForm.value.jornalRealizado ? Number(asistenciaForm.value.jornalRealizado) : undefined,
+    observaciones: asistenciaForm.value.observaciones || undefined,
+    confirmar,
+  };
+  try {
+    await trabajadoresApi.crearAsistencia(id, payload);
+    resetAsistenciaForm();
+    asistenciaDuplicada.value = false;
+    showAsistenciaForm.value = false;
+    await cargar();
+  } catch (error) {
+    if (isAxiosError(error) && error.response?.status === 409) {
+      asistenciaDuplicada.value = true;
+    }
+    asistenciaError.value = isAxiosError(error)
+      ? ((error.response?.data as { message?: string } | undefined)?.message ?? 'No se pudo guardar la asistencia.')
+      : 'No se pudo guardar la asistencia.';
+  } finally {
+    savingAsistencia.value = false;
   }
 }
 </script>
@@ -458,6 +530,84 @@ async function finalizarAsignacion(asignacionId: string) {
             <span class="ficha-trabajador-view__muted">
               {{ formatFecha(a.fechaInicio) }} — {{ a.fechaFin ? formatFecha(a.fechaFin) : '' }}
             </span>
+            <span v-if="a.observaciones" class="ficha-trabajador-view__muted">{{ a.observaciones }}</span>
+          </div>
+        </div>
+      </SectionCard>
+
+      <SectionCard v-else-if="fichaTab === 'asistencia'" title="Asistencia">
+        <template #actions>
+          <button
+            type="button"
+            class="ficha-trabajador-view__btn-ghost"
+            @click="showAsistenciaForm = !showAsistenciaForm"
+          >
+            {{ showAsistenciaForm ? 'Cancelar' : '+ Registrar asistencia' }}
+          </button>
+        </template>
+
+        <div v-if="showAsistenciaForm" class="ficha-trabajador-view__sub-form">
+          <div v-if="asistenciaError" class="ficha-trabajador-view__error">
+            {{ asistenciaError }}
+            <button
+              v-if="asistenciaDuplicada"
+              type="button"
+              class="ficha-trabajador-view__btn-ghost"
+              :disabled="savingAsistencia"
+              @click="guardarAsistencia(true)"
+            >
+              Confirmar y reemplazar
+            </button>
+          </div>
+          <div class="ficha-trabajador-view__form-grid">
+            <div class="ficha-trabajador-view__field">
+              <label>Fecha</label>
+              <input v-model="asistenciaForm.fecha" type="date" />
+            </div>
+            <div class="ficha-trabajador-view__field">
+              <label>Estado</label>
+              <select v-model="asistenciaForm.estado">
+                <option v-for="(label, valor) in ESTADO_ASISTENCIA_LABELS" :key="valor" :value="valor">
+                  {{ label }}
+                </option>
+              </select>
+            </div>
+            <div class="ficha-trabajador-view__field">
+              <label>Hora de entrada (opcional)</label>
+              <input v-model="asistenciaForm.horaEntrada" type="time" />
+            </div>
+            <div class="ficha-trabajador-view__field">
+              <label>Hora de salida (opcional)</label>
+              <input v-model="asistenciaForm.horaSalida" type="time" />
+            </div>
+            <div class="ficha-trabajador-view__field">
+              <label>Jornal realizado (opcional)</label>
+              <input v-model="asistenciaForm.jornalRealizado" type="number" min="0" step="0.5" />
+            </div>
+            <div class="ficha-trabajador-view__field">
+              <label>Observaciones</label>
+              <input v-model="asistenciaForm.observaciones" />
+            </div>
+          </div>
+          <button
+            type="button"
+            class="ficha-trabajador-view__submit"
+            :disabled="savingAsistencia"
+            @click="guardarAsistencia(false)"
+          >
+            {{ savingAsistencia ? 'Guardando…' : 'Guardar asistencia' }}
+          </button>
+        </div>
+
+        <div v-if="asistencias.length === 0" class="ficha-trabajador-view__muted">Sin registros de asistencia.</div>
+        <div v-else class="ficha-trabajador-view__historial">
+          <div v-for="a in asistencias" :key="a.id" class="ficha-trabajador-view__historial-row">
+            <span class="ficha-trabajador-view__bold">{{ formatFecha(a.fecha) }}</span>
+            <span>{{ ESTADO_ASISTENCIA_LABELS[a.estado] }}</span>
+            <span v-if="a.horasTrabajadas !== null" class="ficha-trabajador-view__muted">
+              {{ a.horasTrabajadas }} h ({{ a.horaEntrada }}–{{ a.horaSalida }})
+            </span>
+            <span v-if="a.jornalRealizado" class="ficha-trabajador-view__muted">Jornal: {{ a.jornalRealizado }}</span>
             <span v-if="a.observaciones" class="ficha-trabajador-view__muted">{{ a.observaciones }}</span>
           </div>
         </div>

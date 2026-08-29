@@ -184,6 +184,9 @@ async function inactivarCargo(id: string) {
   <div class="trabajadores-view">
     <SectionCard title="Trabajadores">
       <template #actions>
+        <button type="button" class="trabajadores-view__link-btn" @click="router.push('/trabajadores/asistencia')">
+          Asistencia del día
+        </button>
         <button type="button" class="trabajadores-view__link-btn" @click="showCargos = !showCargos">
           {{ showCargos ? 'Cerrar cargos' : 'Gestionar cargos' }}
         </button>

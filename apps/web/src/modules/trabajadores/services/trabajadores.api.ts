@@ -107,6 +107,46 @@ export interface FinalizarAsignacionPayload {
   fechaFin?: string;
 }
 
+export type EstadoAsistencia =
+  | 'PRESENTE'
+  | 'AUSENTE'
+  | 'PERMISO'
+  | 'VACACIONES'
+  | 'FALTA_JUSTIFICADA'
+  | 'FALTA_INJUSTIFICADA';
+
+export interface Asistencia {
+  id: string;
+  tenantId: string;
+  trabajadorId: string;
+  fecha: string;
+  estado: EstadoAsistencia;
+  horaEntrada: string | null;
+  horaSalida: string | null;
+  tipoJornada: string | null;
+  jornalRealizado: string | null;
+  observaciones: string | null;
+  registradoPorId: string;
+  createdAt: string;
+  horasTrabajadas: number | null;
+}
+
+export interface CrearAsistenciaPayload {
+  fecha: string;
+  estado: EstadoAsistencia;
+  horaEntrada?: string;
+  horaSalida?: string;
+  tipoJornada?: string;
+  jornalRealizado?: number;
+  observaciones?: string;
+  confirmar?: boolean;
+}
+
+export interface AsistenciaDelDia {
+  trabajador: Trabajador;
+  asistencia: Asistencia | null;
+}
+
 export const trabajadoresApi = {
   listarCargos() {
     return http.get<Cargo[]>('/trabajadores/cargos').then((r) => r.data);
@@ -146,5 +186,14 @@ export const trabajadoresApi = {
   },
   finalizarAsignacion(asignacionId: string, payload: FinalizarAsignacionPayload = {}) {
     return http.patch<Asignacion>(`/trabajadores/asignaciones/${asignacionId}/finalizar`, payload).then((r) => r.data);
+  },
+  listarAsistencias(trabajadorId: string) {
+    return http.get<Asistencia[]>(`/trabajadores/${trabajadorId}/asistencias`).then((r) => r.data);
+  },
+  crearAsistencia(trabajadorId: string, payload: CrearAsistenciaPayload) {
+    return http.post<Asistencia>(`/trabajadores/${trabajadorId}/asistencias`, payload).then((r) => r.data);
+  },
+  listarAsistenciaDelDia(fecha: string) {
+    return http.get<AsistenciaDelDia[]>('/trabajadores/asistencias/dia', { params: { fecha } }).then((r) => r.data);
   },
 };

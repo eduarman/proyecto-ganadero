@@ -3,10 +3,19 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ActualizarTrabajadorDto } from './dto/actualizar-trabajador.dto';
 import { CrearAsignacionDto } from './dto/crear-asignacion.dto';
+import { CrearAsistenciaDto } from './dto/crear-asistencia.dto';
 import { CrearCargoDto } from './dto/crear-cargo.dto';
 import { CrearTrabajadorDto } from './dto/crear-trabajador.dto';
 import { FinalizarAsignacionDto } from './dto/finalizar-asignacion.dto';
 import { ListarTrabajadoresQueryDto } from './dto/listar-trabajadores-query.dto';
+
+function calcularHorasTrabajadas(horaEntrada: string | null, horaSalida: string | null): number | null {
+  if (!horaEntrada || !horaSalida) return null;
+  const [horaE, minE] = horaEntrada.split(':').map(Number);
+  const [horaS, minS] = horaSalida.split(':').map(Number);
+  const minutos = horaS * 60 + minS - (horaE * 60 + minE);
+  return Math.round((minutos / 60) * 100) / 100;
+}
 
 // Antigüedad se calcula al leer, no se persiste (mismo criterio que
 // categoria_etaria/GDP en otros módulos).
@@ -286,5 +295,88 @@ export class TrabajadoresService {
       orderBy: { fechaInicio: 'desc' },
     });
     return asignaciones.map((a) => ({ ...a, estado: a.fechaFin ? 'FINALIZADA' : 'VIGENTE' }));
+  }
+
+  // --- Asistencia --------------------------------------------------------
+
+  async crearAsistencia(tenantId: string, trabajadorId: string, dto: CrearAsistenciaDto, usuarioId: string) {
+    const trabajador = await this.obtenerSinAntiguedad(tenantId, trabajadorId);
+    if (trabajador.estado !== 'ACTIVO') {
+      throw new BadRequestException('No se puede registrar asistencia de un trabajador inactivo.');
+    }
+
+    const fecha = new Date(dto.fecha);
+    const ahora = new Date();
+    const hoyUtc = new Date(Date.UTC(ahora.getUTCFullYear(), ahora.getUTCMonth(), ahora.getUTCDate()));
+    if (fecha > hoyUtc) {
+      throw new BadRequestException('No se puede registrar asistencia con fecha futura.');
+    }
+
+    if (dto.horaEntrada && dto.horaSalida && dto.horaSalida < dto.horaEntrada) {
+      throw new BadRequestException('La hora de salida no puede ser anterior a la hora de entrada.');
+    }
+
+    const existente = await this.prisma.asistencia.findUnique({
+      where: { tenantId_trabajadorId_fecha: { tenantId, trabajadorId, fecha } },
+    });
+
+    const data = {
+      estado: dto.estado,
+      horaEntrada: dto.horaEntrada,
+      horaSalida: dto.horaSalida,
+      tipoJornada: dto.tipoJornada,
+      jornalRealizado: dto.jornalRealizado,
+      observaciones: dto.observaciones,
+    };
+
+    let asistencia;
+    if (existente) {
+      if (!dto.confirmar) {
+        throw new ConflictException({
+          code: 'ASISTENCIA_DUPLICADA',
+          message:
+            'Ya existe un registro de asistencia para este trabajador en esta fecha. Confirmá si querés reemplazarlo.',
+        });
+      }
+      asistencia = await this.prisma.asistencia.update({ where: { id: existente.id }, data });
+    } else {
+      asistencia = await this.prisma.asistencia.create({
+        data: { tenantId, trabajadorId, fecha, registradoPorId: usuarioId, ...data },
+      });
+    }
+
+    return { ...asistencia, horasTrabajadas: calcularHorasTrabajadas(asistencia.horaEntrada, asistencia.horaSalida) };
+  }
+
+  async listarAsistencias(tenantId: string, trabajadorId: string) {
+    await this.obtenerSinAntiguedad(tenantId, trabajadorId);
+    const asistencias = await this.prisma.asistencia.findMany({
+      where: { tenantId, trabajadorId },
+      orderBy: { fecha: 'desc' },
+    });
+    return asistencias.map((a) => ({ ...a, horasTrabajadas: calcularHorasTrabajadas(a.horaEntrada, a.horaSalida) }));
+  }
+
+  async listarAsistenciaDelDia(tenantId: string, fechaStr: string) {
+    const fecha = new Date(fechaStr);
+    const [trabajadores, asistencias] = await Promise.all([
+      this.prisma.trabajador.findMany({
+        where: { tenantId, estado: 'ACTIVO' },
+        include: { cargo: true },
+        orderBy: { nombres: 'asc' },
+      }),
+      this.prisma.asistencia.findMany({ where: { tenantId, fecha } }),
+    ]);
+
+    const porTrabajador = new Map(asistencias.map((a) => [a.trabajadorId, a]));
+    return trabajadores.map((t) => {
+      const asistencia = porTrabajador.get(t.id);
+      return {
+        trabajador: t,
+        asistencia: asistencia
+          ? { ...asistencia, horasTrabajadas: calcularHorasTrabajadas(asistencia.horaEntrada, asistencia.horaSalida) }
+          : null,
+      };
+    });
   }
 }
