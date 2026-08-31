@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { MonedaTrabajador, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ActualizarTrabajadorDto } from './dto/actualizar-trabajador.dto';
+import { ConfirmarPagoDto } from './dto/confirmar-pago.dto';
 import { CrearAbonoPrestamoDto } from './dto/crear-abono-prestamo.dto';
 import { CrearAdelantoDto } from './dto/crear-adelanto.dto';
 import { CrearAsignacionDto } from './dto/crear-asignacion.dto';
@@ -11,6 +12,7 @@ import { CrearPrestamoDto } from './dto/crear-prestamo.dto';
 import { CrearTrabajadorDto } from './dto/crear-trabajador.dto';
 import { FinalizarAsignacionDto } from './dto/finalizar-asignacion.dto';
 import { ListarTrabajadoresQueryDto } from './dto/listar-trabajadores-query.dto';
+import { PrevisualizarPagoDto } from './dto/previsualizar-pago.dto';
 
 function calcularHorasTrabajadas(horaEntrada: string | null, horaSalida: string | null): number | null {
   if (!horaEntrada || !horaSalida) return null;
@@ -497,6 +499,153 @@ export class TrabajadoresService {
       const saldoPendiente = Number(p.montoOriginal) - totalPagado;
       const cuotasPagadas = Math.floor(totalPagado / Number(p.valorCuota));
       return { ...p, totalPagado, saldoPendiente, cuotasPagadas };
+    });
+  }
+
+  // --- Pagos -----------------------------------------------------------------
+
+  async previsualizarPago(tenantId: string, trabajadorId: string, dto: PrevisualizarPagoDto) {
+    const trabajador = await this.obtenerSinAntiguedad(tenantId, trabajadorId);
+    const periodoDesde = new Date(dto.periodoDesde);
+    const periodoHasta = new Date(dto.periodoHasta);
+
+    const asistencias = await this.prisma.asistencia.findMany({
+      where: { tenantId, trabajadorId, fecha: { gte: periodoDesde, lte: periodoHasta } },
+    });
+
+    const jornadas = asistencias.filter((a) => a.estado === 'PRESENTE').length;
+    const horasTrabajadas = asistencias.reduce(
+      (acc, a) => acc + (calcularHorasTrabajadas(a.horaEntrada, a.horaSalida) ?? 0),
+      0,
+    );
+    const jornalesRealizados = asistencias.reduce((acc, a) => acc + Number(a.jornalRealizado ?? 0), 0);
+
+    // Solo JORNAL/SALARIO tienen una fórmula clara a partir de datos ya
+    // existentes; el resto (POR_ACTIVIDAD, BONO, COMISION, OTRO) se ingresa a
+    // mano — ver Contexto en el plan de la Etapa 5.
+    let montoBaseSugerido = 0;
+    if (dto.tipo === 'JORNAL') {
+      montoBaseSugerido = jornalesRealizados * Number(trabajador.salarioOJornal);
+    } else if (dto.tipo === 'SALARIO') {
+      montoBaseSugerido = Number(trabajador.salarioOJornal);
+    }
+
+    const [adelantos, prestamos] = await Promise.all([
+      this.listarAdelantos(tenantId, trabajadorId),
+      this.listarPrestamos(tenantId, trabajadorId),
+    ]);
+
+    return {
+      jornadas,
+      horasTrabajadas: Math.round(horasTrabajadas * 100) / 100,
+      jornalesRealizados,
+      montoBaseSugerido,
+      adelantosPendientes: adelantos.filter((a) => a.saldoPendiente > 0),
+      prestamosPendientes: prestamos.filter((p) => p.saldoPendiente > 0),
+    };
+  }
+
+  async confirmarPago(tenantId: string, trabajadorId: string, dto: ConfirmarPagoDto, usuarioId: string) {
+    const trabajador = await this.obtenerSinAntiguedad(tenantId, trabajadorId);
+    if (trabajador.estado !== 'ACTIVO' && !dto.confirmar) {
+      throw new ConflictException({
+        code: 'TRABAJADOR_INACTIVO',
+        message: 'El trabajador está inactivo. Confirmá si igual querés registrar el pago.',
+      });
+    }
+
+    const adelantosValidados: { adelantoId: string; monto: number }[] = [];
+    for (const item of dto.adelantos ?? []) {
+      const adelanto = await this.prisma.adelanto.findFirst({
+        where: { id: item.adelantoId, tenantId, trabajadorId },
+      });
+      if (!adelanto) {
+        throw new NotFoundException('Adelanto no encontrado.');
+      }
+      const saldoPendiente = Number(adelanto.monto) - Number(adelanto.montoDescontado);
+      if (item.monto > saldoPendiente) {
+        throw new BadRequestException({
+          code: 'MONTO_EXCEDE_SALDO',
+          message: `El descuento del adelanto ($${item.monto}) supera su saldo pendiente ($${saldoPendiente.toFixed(2)}).`,
+        });
+      }
+      adelantosValidados.push({ adelantoId: item.adelantoId, monto: item.monto });
+    }
+
+    const prestamosValidados: { prestamoId: string; monto: number }[] = [];
+    for (const item of dto.prestamos ?? []) {
+      const prestamo = await this.prisma.prestamo.findFirst({
+        where: { id: item.prestamoId, tenantId, trabajadorId },
+        include: { abonos: true },
+      });
+      if (!prestamo) {
+        throw new NotFoundException('Préstamo no encontrado.');
+      }
+      const totalPagado = prestamo.abonos.reduce((acc, a) => acc + Number(a.monto), 0);
+      const saldoPendiente = Number(prestamo.montoOriginal) - totalPagado;
+      if (item.monto > saldoPendiente) {
+        throw new BadRequestException({
+          code: 'MONTO_EXCEDE_SALDO',
+          message: `El descuento del préstamo ($${item.monto}) supera su saldo pendiente ($${saldoPendiente.toFixed(2)}).`,
+        });
+      }
+      prestamosValidados.push({ prestamoId: item.prestamoId, monto: item.monto });
+    }
+
+    const bonificaciones = dto.bonificaciones ?? 0;
+    const otrosDescuentos = dto.otrosDescuentos ?? 0;
+    const adelantosDescontados = adelantosValidados.reduce((acc, a) => acc + a.monto, 0);
+    const prestamosDescontados = prestamosValidados.reduce((acc, p) => acc + p.monto, 0);
+    const montoTotal = dto.montoBase + bonificaciones - adelantosDescontados - prestamosDescontados - otrosDescuentos;
+
+    const { tasaCambio, montoEquivalenteUsd } = calcularEquivalenteUsd(dto.moneda, montoTotal, dto.tasaCambio);
+    const fecha = new Date(dto.fecha);
+
+    return this.prisma.$transaction(async (tx) => {
+      const pago = await tx.pago.create({
+        data: {
+          tenantId,
+          trabajadorId,
+          tipo: dto.tipo,
+          periodoDesde: new Date(dto.periodoDesde),
+          periodoHasta: new Date(dto.periodoHasta),
+          montoBase: dto.montoBase,
+          bonificaciones,
+          adelantosDescontados,
+          prestamosDescontados,
+          otrosDescuentos,
+          montoTotal,
+          moneda: dto.moneda,
+          tasaCambio,
+          montoEquivalenteUsd,
+          detalleJson: { adelantos: adelantosValidados, prestamos: prestamosValidados },
+          fecha,
+          observaciones: dto.observaciones,
+          confirmadoPorId: usuarioId,
+        },
+      });
+
+      for (const item of adelantosValidados) {
+        await tx.adelanto.update({
+          where: { id: item.adelantoId },
+          data: { montoDescontado: { increment: item.monto } },
+        });
+      }
+      for (const item of prestamosValidados) {
+        await tx.prestamoAbono.create({
+          data: { prestamoId: item.prestamoId, fecha, monto: item.monto, pagoId: pago.id },
+        });
+      }
+
+      return pago;
+    });
+  }
+
+  async listarPagos(tenantId: string, trabajadorId: string) {
+    await this.obtenerSinAntiguedad(tenantId, trabajadorId);
+    return this.prisma.pago.findMany({
+      where: { tenantId, trabajadorId },
+      orderBy: { fecha: 'desc' },
     });
   }
 }

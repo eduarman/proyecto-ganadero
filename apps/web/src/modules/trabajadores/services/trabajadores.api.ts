@@ -224,6 +224,72 @@ export interface CrearAbonoPrestamoPayload {
   observaciones?: string;
 }
 
+export type TipoPago = 'SALARIO' | 'JORNAL' | 'POR_ACTIVIDAD' | 'BONO' | 'COMISION' | 'OTRO';
+
+export interface Pago {
+  id: string;
+  tenantId: string;
+  trabajadorId: string;
+  tipo: TipoPago;
+  periodoDesde: string;
+  periodoHasta: string;
+  montoBase: string;
+  bonificaciones: string;
+  adelantosDescontados: string;
+  prestamosDescontados: string;
+  otrosDescuentos: string;
+  montoTotal: string;
+  moneda: MonedaTrabajador;
+  tasaCambio: string | null;
+  montoEquivalenteUsd: string | null;
+  detalleJson: unknown;
+  fecha: string;
+  observaciones: string | null;
+  confirmadoPorId: string;
+  createdAt: string;
+}
+
+export interface PrevisualizarPagoPayload {
+  tipo: TipoPago;
+  periodoDesde: string;
+  periodoHasta: string;
+}
+
+export interface PrevisualizacionPago {
+  jornadas: number;
+  horasTrabajadas: number;
+  jornalesRealizados: number;
+  montoBaseSugerido: number;
+  adelantosPendientes: Adelanto[];
+  prestamosPendientes: Prestamo[];
+}
+
+export interface DescuentoAdelantoPayload {
+  adelantoId: string;
+  monto: number;
+}
+
+export interface DescuentoPrestamoPayload {
+  prestamoId: string;
+  monto: number;
+}
+
+export interface ConfirmarPagoPayload {
+  tipo: TipoPago;
+  periodoDesde: string;
+  periodoHasta: string;
+  montoBase: number;
+  bonificaciones?: number;
+  otrosDescuentos?: number;
+  moneda: MonedaTrabajador;
+  tasaCambio?: number;
+  adelantos?: DescuentoAdelantoPayload[];
+  prestamos?: DescuentoPrestamoPayload[];
+  fecha: string;
+  observaciones?: string;
+  confirmar?: boolean;
+}
+
 export const trabajadoresApi = {
   listarCargos() {
     return http.get<Cargo[]>('/trabajadores/cargos').then((r) => r.data);
@@ -287,5 +353,16 @@ export const trabajadoresApi = {
   },
   crearAbonoPrestamo(prestamoId: string, payload: CrearAbonoPrestamoPayload) {
     return http.post<PrestamoAbono>(`/trabajadores/prestamos/${prestamoId}/abonos`, payload).then((r) => r.data);
+  },
+  listarPagos(trabajadorId: string) {
+    return http.get<Pago[]>(`/trabajadores/${trabajadorId}/pagos`).then((r) => r.data);
+  },
+  previsualizarPago(trabajadorId: string, payload: PrevisualizarPagoPayload) {
+    return http
+      .post<PrevisualizacionPago>(`/trabajadores/${trabajadorId}/pagos/previsualizar`, payload)
+      .then((r) => r.data);
+  },
+  confirmarPago(trabajadorId: string, payload: ConfirmarPagoPayload) {
+    return http.post<Pago>(`/trabajadores/${trabajadorId}/pagos`, payload).then((r) => r.data);
   },
 };

@@ -14,25 +14,39 @@ import {
   type Asignacion,
   type Asistencia,
   type Cargo,
+  type ConfirmarPagoPayload,
   type CrearAbonoPrestamoPayload,
   type CrearAsignacionPayload,
   type CrearAsistenciaPayload,
   type EstadoAsistencia,
   type ModalidadPago,
   type MonedaTrabajador,
+  type Pago,
   type Prestamo,
+  type PrevisualizacionPago,
   type TipoContratacion,
+  type TipoPago,
   type TrabajadorConAntiguedad,
 } from '../services/trabajadores.api';
 
-type FichaTab = 'general' | 'asignaciones' | 'asistencia' | 'adelantos' | 'prestamos';
+type FichaTab = 'general' | 'asignaciones' | 'asistencia' | 'adelantos' | 'prestamos' | 'pagos';
 const FICHA_TABS: { key: FichaTab; label: string }[] = [
   { key: 'general', label: 'Información general' },
   { key: 'asignaciones', label: 'Asignaciones' },
   { key: 'asistencia', label: 'Asistencia' },
   { key: 'adelantos', label: 'Adelantos' },
   { key: 'prestamos', label: 'Préstamos' },
+  { key: 'pagos', label: 'Pagos' },
 ];
+
+const TIPO_PAGO_LABELS: Record<TipoPago, string> = {
+  SALARIO: 'Salario',
+  JORNAL: 'Jornal',
+  POR_ACTIVIDAD: 'Por actividad',
+  BONO: 'Bono',
+  COMISION: 'Comisión',
+  OTRO: 'Otro',
+};
 
 const MONEDA_LABELS: Record<MonedaTrabajador, string> = { USD: 'USD', VES: 'VES' };
 
@@ -76,6 +90,7 @@ const asignaciones = ref<Asignacion[]>([]);
 const asistencias = ref<Asistencia[]>([]);
 const adelantos = ref<Adelanto[]>([]);
 const prestamos = ref<Prestamo[]>([]);
+const pagos = ref<Pago[]>([]);
 
 const editando = ref(false);
 const form = ref<ActualizarTrabajadorPayload>({});
@@ -88,16 +103,25 @@ const fichaTab = ref<FichaTab>('general');
 async function cargar() {
   loading.value = true;
   try {
-    const [trabajadorResp, cargosResp, potrerosResp, asignacionesResp, asistenciasResp, adelantosResp, prestamosResp] =
-      await Promise.all([
-        trabajadoresApi.obtener(id),
-        trabajadoresApi.listarCargos(),
-        potrerosApi.listar(),
-        trabajadoresApi.listarAsignaciones(id),
-        trabajadoresApi.listarAsistencias(id),
-        trabajadoresApi.listarAdelantos(id),
-        trabajadoresApi.listarPrestamos(id),
-      ]);
+    const [
+      trabajadorResp,
+      cargosResp,
+      potrerosResp,
+      asignacionesResp,
+      asistenciasResp,
+      adelantosResp,
+      prestamosResp,
+      pagosResp,
+    ] = await Promise.all([
+      trabajadoresApi.obtener(id),
+      trabajadoresApi.listarCargos(),
+      potrerosApi.listar(),
+      trabajadoresApi.listarAsignaciones(id),
+      trabajadoresApi.listarAsistencias(id),
+      trabajadoresApi.listarAdelantos(id),
+      trabajadoresApi.listarPrestamos(id),
+      trabajadoresApi.listarPagos(id),
+    ]);
     trabajador.value = trabajadorResp;
     cargos.value = cargosResp;
     potrerosActivos.value = potrerosResp.filter((p) => p.estado === 'ACTIVO');
@@ -105,6 +129,7 @@ async function cargar() {
     asistencias.value = asistenciasResp;
     adelantos.value = adelantosResp;
     prestamos.value = prestamosResp;
+    pagos.value = pagosResp;
   } finally {
     loading.value = false;
   }
@@ -425,6 +450,123 @@ async function abonarPrestamo(prestamoId: string) {
       : 'No se pudo registrar el abono.';
   } finally {
     abonandoId.value = null;
+  }
+}
+
+// --- Pagos -------------------------------------------------------------
+
+const pagoPreviewForm = ref({
+  tipo: 'JORNAL' as TipoPago,
+  periodoDesde: new Date().toISOString().slice(0, 10),
+  periodoHasta: new Date().toISOString().slice(0, 10),
+});
+const previsualizando = ref(false);
+const previsualizacionError = ref('');
+const previsualizacion = ref<PrevisualizacionPago | null>(null);
+
+const pagoConfirmForm = ref({
+  montoBase: '',
+  bonificaciones: '',
+  otrosDescuentos: '',
+  moneda: 'USD' as MonedaTrabajador,
+  tasaCambio: '',
+  fecha: new Date().toISOString().slice(0, 10),
+  observaciones: '',
+});
+const adelantosSeleccionados = ref<Record<string, { activo: boolean; monto: string }>>({});
+const prestamosSeleccionados = ref<Record<string, { activo: boolean; monto: string }>>({});
+const savingPago = ref(false);
+const pagoError = ref('');
+const pagoInactivo = ref(false);
+
+async function previsualizarPago() {
+  previsualizacionError.value = '';
+  previsualizando.value = true;
+  previsualizacion.value = null;
+  pagoInactivo.value = false;
+  pagoError.value = '';
+  try {
+    const resultado = await trabajadoresApi.previsualizarPago(id, { ...pagoPreviewForm.value });
+    previsualizacion.value = resultado;
+    pagoConfirmForm.value = {
+      montoBase: String(resultado.montoBaseSugerido),
+      bonificaciones: '',
+      otrosDescuentos: '',
+      moneda: 'USD',
+      tasaCambio: '',
+      fecha: new Date().toISOString().slice(0, 10),
+      observaciones: '',
+    };
+    adelantosSeleccionados.value = Object.fromEntries(
+      resultado.adelantosPendientes.map((a) => [a.id, { activo: false, monto: a.saldoPendiente.toFixed(2) }]),
+    );
+    prestamosSeleccionados.value = Object.fromEntries(
+      resultado.prestamosPendientes.map((p) => [p.id, { activo: false, monto: p.saldoPendiente.toFixed(2) }]),
+    );
+  } catch (error) {
+    previsualizacionError.value = isAxiosError(error)
+      ? ((error.response?.data as { message?: string } | undefined)?.message ?? 'No se pudo previsualizar el pago.')
+      : 'No se pudo previsualizar el pago.';
+  } finally {
+    previsualizando.value = false;
+  }
+}
+
+const totalAdelantosDescontados = computed(() =>
+  Object.values(adelantosSeleccionados.value)
+    .filter((a) => a.activo)
+    .reduce((acc, a) => acc + (Number(a.monto) || 0), 0),
+);
+const totalPrestamosDescontados = computed(() =>
+  Object.values(prestamosSeleccionados.value)
+    .filter((p) => p.activo)
+    .reduce((acc, p) => acc + (Number(p.monto) || 0), 0),
+);
+const montoTotalPago = computed(() => {
+  const base = Number(pagoConfirmForm.value.montoBase) || 0;
+  const bonif = Number(pagoConfirmForm.value.bonificaciones) || 0;
+  const otros = Number(pagoConfirmForm.value.otrosDescuentos) || 0;
+  return base + bonif - totalAdelantosDescontados.value - totalPrestamosDescontados.value - otros;
+});
+
+async function confirmarPago(confirmar = false) {
+  pagoError.value = '';
+  savingPago.value = true;
+  try {
+    const payload: ConfirmarPagoPayload = {
+      tipo: pagoPreviewForm.value.tipo,
+      periodoDesde: pagoPreviewForm.value.periodoDesde,
+      periodoHasta: pagoPreviewForm.value.periodoHasta,
+      montoBase: Number(pagoConfirmForm.value.montoBase) || 0,
+      bonificaciones: pagoConfirmForm.value.bonificaciones ? Number(pagoConfirmForm.value.bonificaciones) : undefined,
+      otrosDescuentos: pagoConfirmForm.value.otrosDescuentos
+        ? Number(pagoConfirmForm.value.otrosDescuentos)
+        : undefined,
+      moneda: pagoConfirmForm.value.moneda,
+      tasaCambio: pagoConfirmForm.value.tasaCambio ? Number(pagoConfirmForm.value.tasaCambio) : undefined,
+      adelantos: Object.entries(adelantosSeleccionados.value)
+        .filter(([, v]) => v.activo && Number(v.monto) > 0)
+        .map(([adelantoId, v]) => ({ adelantoId, monto: Number(v.monto) })),
+      prestamos: Object.entries(prestamosSeleccionados.value)
+        .filter(([, v]) => v.activo && Number(v.monto) > 0)
+        .map(([prestamoId, v]) => ({ prestamoId, monto: Number(v.monto) })),
+      fecha: pagoConfirmForm.value.fecha,
+      observaciones: pagoConfirmForm.value.observaciones || undefined,
+      confirmar,
+    };
+    await trabajadoresApi.confirmarPago(id, payload);
+    pagoInactivo.value = false;
+    previsualizacion.value = null;
+    await cargar();
+  } catch (error) {
+    if (isAxiosError(error) && error.response?.status === 409) {
+      pagoInactivo.value = true;
+    }
+    pagoError.value = isAxiosError(error)
+      ? ((error.response?.data as { message?: string } | undefined)?.message ?? 'No se pudo confirmar el pago.')
+      : 'No se pudo confirmar el pago.';
+  } finally {
+    savingPago.value = false;
   }
 }
 </script>
@@ -914,6 +1056,154 @@ async function abonarPrestamo(prestamoId: string) {
           </div>
         </div>
       </SectionCard>
+
+      <SectionCard v-else-if="fichaTab === 'pagos'" title="Pagos">
+        <div class="ficha-trabajador-view__sub-form">
+          <div v-if="previsualizacionError" class="ficha-trabajador-view__error">{{ previsualizacionError }}</div>
+          <div class="ficha-trabajador-view__form-grid">
+            <div class="ficha-trabajador-view__field">
+              <label>Tipo de pago</label>
+              <select v-model="pagoPreviewForm.tipo">
+                <option v-for="(label, valor) in TIPO_PAGO_LABELS" :key="valor" :value="valor">{{ label }}</option>
+              </select>
+            </div>
+            <div class="ficha-trabajador-view__field">
+              <label>Período desde</label>
+              <input v-model="pagoPreviewForm.periodoDesde" type="date" />
+            </div>
+            <div class="ficha-trabajador-view__field">
+              <label>Período hasta</label>
+              <input v-model="pagoPreviewForm.periodoHasta" type="date" />
+            </div>
+          </div>
+          <button
+            type="button"
+            class="ficha-trabajador-view__submit"
+            :disabled="previsualizando"
+            @click="previsualizarPago"
+          >
+            {{ previsualizando ? 'Calculando…' : 'Calcular' }}
+          </button>
+        </div>
+
+        <div v-if="previsualizacion" class="ficha-trabajador-view__sub-form">
+          <div v-if="pagoError" class="ficha-trabajador-view__error">
+            {{ pagoError }}
+            <button
+              v-if="pagoInactivo && esAdmin"
+              type="button"
+              class="ficha-trabajador-view__btn-ghost"
+              :disabled="savingPago"
+              @click="confirmarPago(true)"
+            >
+              Confirmar y registrar igual
+            </button>
+          </div>
+
+          <div class="ficha-trabajador-view__muted">
+            Jornadas: {{ previsualizacion.jornadas }} · Horas: {{ previsualizacion.horasTrabajadas }} · Jornales:
+            {{ previsualizacion.jornalesRealizados }}
+          </div>
+
+          <div class="ficha-trabajador-view__form-grid">
+            <div class="ficha-trabajador-view__field">
+              <label>Monto base</label>
+              <input v-model="pagoConfirmForm.montoBase" type="number" min="0" step="0.01" />
+            </div>
+            <div class="ficha-trabajador-view__field">
+              <label>Bonificaciones</label>
+              <input v-model="pagoConfirmForm.bonificaciones" type="number" min="0" step="0.01" />
+            </div>
+            <div class="ficha-trabajador-view__field">
+              <label>Otros descuentos</label>
+              <input v-model="pagoConfirmForm.otrosDescuentos" type="number" min="0" step="0.01" />
+            </div>
+            <div class="ficha-trabajador-view__field">
+              <label>Moneda de pago</label>
+              <select v-model="pagoConfirmForm.moneda">
+                <option v-for="(label, valor) in MONEDA_LABELS" :key="valor" :value="valor">{{ label }}</option>
+              </select>
+            </div>
+            <div v-if="pagoConfirmForm.moneda === 'VES'" class="ficha-trabajador-view__field">
+              <label>Tasa de cambio (VES por USD)</label>
+              <input v-model="pagoConfirmForm.tasaCambio" type="number" min="0" step="0.0001" />
+            </div>
+            <div class="ficha-trabajador-view__field">
+              <label>Fecha de pago</label>
+              <input v-model="pagoConfirmForm.fecha" type="date" />
+            </div>
+            <div class="ficha-trabajador-view__field">
+              <label>Observaciones</label>
+              <input v-model="pagoConfirmForm.observaciones" />
+            </div>
+          </div>
+
+          <template v-if="previsualizacion.adelantosPendientes.length > 0">
+            <div class="ficha-trabajador-view__vigente-title">Descontar adelantos</div>
+            <div
+              v-for="a in previsualizacion.adelantosPendientes"
+              :key="a.id"
+              class="ficha-trabajador-view__pago-descuento-row"
+            >
+              <input type="checkbox" v-model="adelantosSeleccionados[a.id].activo" />
+              <span>{{ formatFecha(a.fecha) }} — {{ a.motivo }} (saldo {{ a.saldoPendiente.toFixed(2) }})</span>
+              <input
+                v-model="adelantosSeleccionados[a.id].monto"
+                type="number"
+                min="0"
+                :max="a.saldoPendiente"
+                step="0.01"
+                :disabled="!adelantosSeleccionados[a.id].activo"
+              />
+            </div>
+          </template>
+
+          <template v-if="previsualizacion.prestamosPendientes.length > 0">
+            <div class="ficha-trabajador-view__vigente-title">Descontar préstamos</div>
+            <div
+              v-for="p in previsualizacion.prestamosPendientes"
+              :key="p.id"
+              class="ficha-trabajador-view__pago-descuento-row"
+            >
+              <input type="checkbox" v-model="prestamosSeleccionados[p.id].activo" />
+              <span>{{ formatFecha(p.fecha) }} — {{ p.montoOriginal }} {{ p.moneda }} (saldo {{ p.saldoPendiente.toFixed(2) }})</span>
+              <input
+                v-model="prestamosSeleccionados[p.id].monto"
+                type="number"
+                min="0"
+                :max="p.saldoPendiente"
+                step="0.01"
+                :disabled="!prestamosSeleccionados[p.id].activo"
+              />
+            </div>
+          </template>
+
+          <div class="ficha-trabajador-view__pago-total">
+            <span>Monto total</span>
+            <span>{{ montoTotalPago.toFixed(2) }} {{ pagoConfirmForm.moneda }}</span>
+          </div>
+
+          <button
+            v-if="esAdmin"
+            type="button"
+            class="ficha-trabajador-view__submit"
+            :disabled="savingPago"
+            @click="confirmarPago(false)"
+          >
+            {{ savingPago ? 'Confirmando…' : 'Confirmar pago' }}
+          </button>
+        </div>
+
+        <div v-if="pagos.length === 0" class="ficha-trabajador-view__muted">Sin pagos registrados.</div>
+        <div v-else class="ficha-trabajador-view__historial">
+          <div v-for="p in pagos" :key="p.id" class="ficha-trabajador-view__historial-row">
+            <span class="ficha-trabajador-view__bold">{{ formatFecha(p.fecha) }}</span>
+            <span>{{ TIPO_PAGO_LABELS[p.tipo] }}</span>
+            <span class="ficha-trabajador-view__muted">Total: {{ p.montoTotal }} {{ p.moneda }}</span>
+            <span v-if="p.observaciones" class="ficha-trabajador-view__muted">{{ p.observaciones }}</span>
+          </div>
+        </div>
+      </SectionCard>
     </template>
   </div>
 </template>
@@ -1109,6 +1399,38 @@ async function abonarPrestamo(prestamoId: string) {
       background: var(--color-white);
       font-family: inherit;
     }
+  }
+
+  &__pago-descuento-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.4rem 0;
+    font-size: 0.82rem;
+
+    span {
+      flex: 1;
+    }
+
+    input[type='number'] {
+      width: 110px;
+      border: 1.5px solid #efead1;
+      border-radius: 12px;
+      padding: 0.4rem 0.6rem;
+      font-size: 0.8rem;
+      font-family: inherit;
+      background: var(--color-white);
+    }
+  }
+
+  &__pago-total {
+    display: flex;
+    justify-content: space-between;
+    font-weight: 800;
+    font-size: 0.95rem;
+    padding-top: 0.6rem;
+    border-top: 1px solid #f2efdd;
+    margin-top: 0.4rem;
   }
 
   &__vigente {

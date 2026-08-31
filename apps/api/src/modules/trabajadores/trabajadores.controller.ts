@@ -7,6 +7,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { JwtPayload } from '../auth/jwt-payload.interface';
 import { ActualizarTrabajadorDto } from './dto/actualizar-trabajador.dto';
+import { ConfirmarPagoDto } from './dto/confirmar-pago.dto';
 import { CrearAbonoPrestamoDto } from './dto/crear-abono-prestamo.dto';
 import { CrearAdelantoDto } from './dto/crear-adelanto.dto';
 import { CrearAsignacionDto } from './dto/crear-asignacion.dto';
@@ -17,6 +18,7 @@ import { CrearTrabajadorDto } from './dto/crear-trabajador.dto';
 import { FinalizarAsignacionDto } from './dto/finalizar-asignacion.dto';
 import { ListarAsistenciaDiaQueryDto } from './dto/listar-asistencia-dia-query.dto';
 import { ListarTrabajadoresQueryDto } from './dto/listar-trabajadores-query.dto';
+import { PrevisualizarPagoDto } from './dto/previsualizar-pago.dto';
 import { TrabajadoresService } from './trabajadores.service';
 
 @Controller('trabajadores')
@@ -139,5 +141,21 @@ export class TrabajadoresController {
     @Body() dto: CrearAbonoPrestamoDto,
   ) {
     return this.trabajadoresService.crearAbonoPrestamo(user.tenantId as string, prestamoId, dto);
+  }
+
+  @Get(':id/pagos')
+  listarPagos(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.trabajadoresService.listarPagos(user.tenantId as string, id);
+  }
+
+  @Post(':id/pagos/previsualizar')
+  previsualizarPago(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Body() dto: PrevisualizarPagoDto) {
+    return this.trabajadoresService.previsualizarPago(user.tenantId as string, id, dto);
+  }
+
+  @Post(':id/pagos')
+  @Roles(RolUsuario.ADMIN_NEGOCIO)
+  confirmarPago(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Body() dto: ConfirmarPagoDto) {
+    return this.trabajadoresService.confirmarPago(user.tenantId as string, id, dto, user.sub);
   }
 }
