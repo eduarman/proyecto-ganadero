@@ -1,10 +1,13 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { MonedaTrabajador, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ActualizarTrabajadorDto } from './dto/actualizar-trabajador.dto';
+import { CrearAbonoPrestamoDto } from './dto/crear-abono-prestamo.dto';
+import { CrearAdelantoDto } from './dto/crear-adelanto.dto';
 import { CrearAsignacionDto } from './dto/crear-asignacion.dto';
 import { CrearAsistenciaDto } from './dto/crear-asistencia.dto';
 import { CrearCargoDto } from './dto/crear-cargo.dto';
+import { CrearPrestamoDto } from './dto/crear-prestamo.dto';
 import { CrearTrabajadorDto } from './dto/crear-trabajador.dto';
 import { FinalizarAsignacionDto } from './dto/finalizar-asignacion.dto';
 import { ListarTrabajadoresQueryDto } from './dto/listar-trabajadores-query.dto';
@@ -15,6 +18,23 @@ function calcularHorasTrabajadas(horaEntrada: string | null, horaSalida: string 
   const [horaS, minS] = horaSalida.split(':').map(Number);
   const minutos = horaS * 60 + minS - (horaE * 60 + minE);
   return Math.round((minutos / 60) * 100) / 100;
+}
+
+// USD es la moneda de referencia fija (v1, no configurable por negocio — ver
+// design.md Etapa 4). En USD no hace falta tasa; en VES es obligatoria y se
+// congela junto con el equivalente, sin recalcularse nunca retroactivamente.
+function calcularEquivalenteUsd(
+  moneda: MonedaTrabajador,
+  monto: number,
+  tasaCambio?: number,
+): { tasaCambio: number | null; montoEquivalenteUsd: number | null } {
+  if (moneda === 'USD') {
+    return { tasaCambio: null, montoEquivalenteUsd: null };
+  }
+  if (!tasaCambio) {
+    throw new BadRequestException('Se requiere la tasa de cambio para operaciones en VES.');
+  }
+  return { tasaCambio, montoEquivalenteUsd: Math.round((monto / tasaCambio) * 100) / 100 };
 }
 
 // Antigüedad se calcula al leer, no se persiste (mismo criterio que
@@ -377,6 +397,106 @@ export class TrabajadoresService {
           ? { ...asistencia, horasTrabajadas: calcularHorasTrabajadas(asistencia.horaEntrada, asistencia.horaSalida) }
           : null,
       };
+    });
+  }
+
+  // --- Adelantos -----------------------------------------------------------
+
+  async crearAdelanto(tenantId: string, trabajadorId: string, dto: CrearAdelantoDto, usuarioId: string) {
+    const trabajador = await this.obtenerSinAntiguedad(tenantId, trabajadorId);
+    if (trabajador.estado !== 'ACTIVO') {
+      throw new BadRequestException('No se puede registrar un adelanto para un trabajador inactivo.');
+    }
+    const { tasaCambio, montoEquivalenteUsd } = calcularEquivalenteUsd(dto.moneda, dto.monto, dto.tasaCambio);
+
+    return this.prisma.adelanto.create({
+      data: {
+        tenantId,
+        trabajadorId,
+        fecha: new Date(dto.fecha),
+        monto: dto.monto,
+        moneda: dto.moneda,
+        tasaCambio,
+        montoEquivalenteUsd,
+        motivo: dto.motivo,
+        metodoEntrega: dto.metodoEntrega,
+        observaciones: dto.observaciones,
+        registradoPorId: usuarioId,
+      },
+    });
+  }
+
+  async listarAdelantos(tenantId: string, trabajadorId: string) {
+    await this.obtenerSinAntiguedad(tenantId, trabajadorId);
+    const adelantos = await this.prisma.adelanto.findMany({
+      where: { tenantId, trabajadorId },
+      orderBy: { fecha: 'desc' },
+    });
+    return adelantos.map((a) => ({ ...a, saldoPendiente: Number(a.monto) - Number(a.montoDescontado) }));
+  }
+
+  // --- Préstamos -------------------------------------------------------------
+
+  async crearPrestamo(tenantId: string, trabajadorId: string, dto: CrearPrestamoDto, usuarioId: string) {
+    const trabajador = await this.obtenerSinAntiguedad(tenantId, trabajadorId);
+    if (trabajador.estado !== 'ACTIVO') {
+      throw new BadRequestException('No se puede registrar un préstamo para un trabajador inactivo.');
+    }
+    const { tasaCambio, montoEquivalenteUsd } = calcularEquivalenteUsd(dto.moneda, dto.montoOriginal, dto.tasaCambio);
+
+    return this.prisma.prestamo.create({
+      data: {
+        tenantId,
+        trabajadorId,
+        fecha: new Date(dto.fecha),
+        montoOriginal: dto.montoOriginal,
+        moneda: dto.moneda,
+        tasaCambio,
+        montoEquivalenteUsd,
+        numeroCuotas: dto.numeroCuotas,
+        valorCuota: dto.valorCuota,
+        fechaInicio: new Date(dto.fechaInicio),
+        observaciones: dto.observaciones,
+        registradoPorId: usuarioId,
+      },
+    });
+  }
+
+  async crearAbonoPrestamo(tenantId: string, prestamoId: string, dto: CrearAbonoPrestamoDto) {
+    const prestamo = await this.prisma.prestamo.findFirst({
+      where: { id: prestamoId, tenantId },
+      include: { abonos: true },
+    });
+    if (!prestamo) {
+      throw new NotFoundException('Préstamo no encontrado.');
+    }
+
+    const totalPagado = prestamo.abonos.reduce((acc, a) => acc + Number(a.monto), 0);
+    const saldoPendiente = Number(prestamo.montoOriginal) - totalPagado;
+    if (dto.monto > saldoPendiente) {
+      throw new BadRequestException({
+        code: 'MONTO_EXCEDE_SALDO',
+        message: `El abono ($${dto.monto}) supera el saldo pendiente ($${saldoPendiente.toFixed(2)}).`,
+      });
+    }
+
+    return this.prisma.prestamoAbono.create({
+      data: { prestamoId, fecha: new Date(dto.fecha), monto: dto.monto, observaciones: dto.observaciones },
+    });
+  }
+
+  async listarPrestamos(tenantId: string, trabajadorId: string) {
+    await this.obtenerSinAntiguedad(tenantId, trabajadorId);
+    const prestamos = await this.prisma.prestamo.findMany({
+      where: { tenantId, trabajadorId },
+      include: { abonos: { orderBy: { fecha: 'desc' } } },
+      orderBy: { fecha: 'desc' },
+    });
+    return prestamos.map((p) => {
+      const totalPagado = p.abonos.reduce((acc, a) => acc + Number(a.monto), 0);
+      const saldoPendiente = Number(p.montoOriginal) - totalPagado;
+      const cuotasPagadas = Math.floor(totalPagado / Number(p.valorCuota));
+      return { ...p, totalPagado, saldoPendiente, cuotasPagadas };
     });
   }
 }

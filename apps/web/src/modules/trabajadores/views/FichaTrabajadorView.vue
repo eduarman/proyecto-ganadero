@@ -5,27 +5,36 @@ import { useRoute, useRouter } from 'vue-router';
 import { formatFecha } from '../../../shared/utils/fecha';
 import SectionCard from '../../../shared/components/SectionCard.vue';
 import Pill from '../../../shared/components/Pill.vue';
+import { useAuthStore } from '../../../stores/auth.store';
 import { potrerosApi, type Potrero } from '../../potreros/services/potreros.api';
 import {
   trabajadoresApi,
   type ActualizarTrabajadorPayload,
+  type Adelanto,
   type Asignacion,
   type Asistencia,
   type Cargo,
+  type CrearAbonoPrestamoPayload,
   type CrearAsignacionPayload,
   type CrearAsistenciaPayload,
   type EstadoAsistencia,
   type ModalidadPago,
+  type MonedaTrabajador,
+  type Prestamo,
   type TipoContratacion,
   type TrabajadorConAntiguedad,
 } from '../services/trabajadores.api';
 
-type FichaTab = 'general' | 'asignaciones' | 'asistencia';
+type FichaTab = 'general' | 'asignaciones' | 'asistencia' | 'adelantos' | 'prestamos';
 const FICHA_TABS: { key: FichaTab; label: string }[] = [
   { key: 'general', label: 'Información general' },
   { key: 'asignaciones', label: 'Asignaciones' },
   { key: 'asistencia', label: 'Asistencia' },
+  { key: 'adelantos', label: 'Adelantos' },
+  { key: 'prestamos', label: 'Préstamos' },
 ];
+
+const MONEDA_LABELS: Record<MonedaTrabajador, string> = { USD: 'USD', VES: 'VES' };
 
 const ESTADO_ASISTENCIA_LABELS: Record<EstadoAsistencia, string> = {
   PRESENTE: 'Presente',
@@ -54,7 +63,10 @@ const MODALIDAD_PAGO_LABELS: Record<ModalidadPago, string> = {
 
 const route = useRoute();
 const router = useRouter();
+const auth = useAuthStore();
 const id = String(route.params.id);
+
+const esAdmin = computed(() => auth.rolActivo === 'ADMIN_NEGOCIO');
 
 const loading = ref(true);
 const trabajador = ref<TrabajadorConAntiguedad | null>(null);
@@ -62,6 +74,8 @@ const cargos = ref<Cargo[]>([]);
 const potrerosActivos = ref<Potrero[]>([]);
 const asignaciones = ref<Asignacion[]>([]);
 const asistencias = ref<Asistencia[]>([]);
+const adelantos = ref<Adelanto[]>([]);
+const prestamos = ref<Prestamo[]>([]);
 
 const editando = ref(false);
 const form = ref<ActualizarTrabajadorPayload>({});
@@ -74,18 +88,23 @@ const fichaTab = ref<FichaTab>('general');
 async function cargar() {
   loading.value = true;
   try {
-    const [trabajadorResp, cargosResp, potrerosResp, asignacionesResp, asistenciasResp] = await Promise.all([
-      trabajadoresApi.obtener(id),
-      trabajadoresApi.listarCargos(),
-      potrerosApi.listar(),
-      trabajadoresApi.listarAsignaciones(id),
-      trabajadoresApi.listarAsistencias(id),
-    ]);
+    const [trabajadorResp, cargosResp, potrerosResp, asignacionesResp, asistenciasResp, adelantosResp, prestamosResp] =
+      await Promise.all([
+        trabajadoresApi.obtener(id),
+        trabajadoresApi.listarCargos(),
+        potrerosApi.listar(),
+        trabajadoresApi.listarAsignaciones(id),
+        trabajadoresApi.listarAsistencias(id),
+        trabajadoresApi.listarAdelantos(id),
+        trabajadoresApi.listarPrestamos(id),
+      ]);
     trabajador.value = trabajadorResp;
     cargos.value = cargosResp;
     potrerosActivos.value = potrerosResp.filter((p) => p.estado === 'ACTIVO');
     asignaciones.value = asignacionesResp;
     asistencias.value = asistenciasResp;
+    adelantos.value = adelantosResp;
+    prestamos.value = prestamosResp;
   } finally {
     loading.value = false;
   }
@@ -276,6 +295,136 @@ async function guardarAsistencia(confirmar = false) {
       : 'No se pudo guardar la asistencia.';
   } finally {
     savingAsistencia.value = false;
+  }
+}
+
+// --- Adelantos -----------------------------------------------------------
+
+const showAdelantoForm = ref(false);
+const adelantoForm = ref({
+  fecha: new Date().toISOString().slice(0, 10),
+  monto: '',
+  moneda: 'USD' as MonedaTrabajador,
+  tasaCambio: '',
+  motivo: '',
+  metodoEntrega: '',
+  observaciones: '',
+});
+const savingAdelanto = ref(false);
+const adelantoError = ref('');
+
+function resetAdelantoForm() {
+  adelantoForm.value = {
+    fecha: new Date().toISOString().slice(0, 10),
+    monto: '',
+    moneda: 'USD',
+    tasaCambio: '',
+    motivo: '',
+    metodoEntrega: '',
+    observaciones: '',
+  };
+}
+
+async function guardarAdelanto() {
+  adelantoError.value = '';
+  savingAdelanto.value = true;
+  try {
+    await trabajadoresApi.crearAdelanto(id, {
+      fecha: adelantoForm.value.fecha,
+      monto: Number(adelantoForm.value.monto),
+      moneda: adelantoForm.value.moneda,
+      tasaCambio: adelantoForm.value.tasaCambio ? Number(adelantoForm.value.tasaCambio) : undefined,
+      motivo: adelantoForm.value.motivo,
+      metodoEntrega: adelantoForm.value.metodoEntrega || undefined,
+      observaciones: adelantoForm.value.observaciones || undefined,
+    });
+    resetAdelantoForm();
+    showAdelantoForm.value = false;
+    await cargar();
+  } catch (error) {
+    adelantoError.value = isAxiosError(error)
+      ? ((error.response?.data as { message?: string } | undefined)?.message ?? 'No se pudo guardar el adelanto.')
+      : 'No se pudo guardar el adelanto.';
+  } finally {
+    savingAdelanto.value = false;
+  }
+}
+
+// --- Préstamos -------------------------------------------------------------
+
+const showPrestamoForm = ref(false);
+const prestamoForm = ref({
+  fecha: new Date().toISOString().slice(0, 10),
+  montoOriginal: '',
+  moneda: 'USD' as MonedaTrabajador,
+  tasaCambio: '',
+  numeroCuotas: '',
+  valorCuota: '',
+  fechaInicio: new Date().toISOString().slice(0, 10),
+  observaciones: '',
+});
+const savingPrestamo = ref(false);
+const prestamoError = ref('');
+
+function resetPrestamoForm() {
+  prestamoForm.value = {
+    fecha: new Date().toISOString().slice(0, 10),
+    montoOriginal: '',
+    moneda: 'USD',
+    tasaCambio: '',
+    numeroCuotas: '',
+    valorCuota: '',
+    fechaInicio: new Date().toISOString().slice(0, 10),
+    observaciones: '',
+  };
+}
+
+async function guardarPrestamo() {
+  prestamoError.value = '';
+  savingPrestamo.value = true;
+  try {
+    await trabajadoresApi.crearPrestamo(id, {
+      fecha: prestamoForm.value.fecha,
+      montoOriginal: Number(prestamoForm.value.montoOriginal),
+      moneda: prestamoForm.value.moneda,
+      tasaCambio: prestamoForm.value.tasaCambio ? Number(prestamoForm.value.tasaCambio) : undefined,
+      numeroCuotas: Number(prestamoForm.value.numeroCuotas),
+      valorCuota: Number(prestamoForm.value.valorCuota),
+      fechaInicio: prestamoForm.value.fechaInicio,
+      observaciones: prestamoForm.value.observaciones || undefined,
+    });
+    resetPrestamoForm();
+    showPrestamoForm.value = false;
+    await cargar();
+  } catch (error) {
+    prestamoError.value = isAxiosError(error)
+      ? ((error.response?.data as { message?: string } | undefined)?.message ?? 'No se pudo guardar el préstamo.')
+      : 'No se pudo guardar el préstamo.';
+  } finally {
+    savingPrestamo.value = false;
+  }
+}
+
+const abonoMontoPorPrestamo = ref<Record<string, string>>({});
+const abonandoId = ref<string | null>(null);
+const abonoError = ref('');
+
+async function abonarPrestamo(prestamoId: string) {
+  abonoError.value = '';
+  const monto = Number(abonoMontoPorPrestamo.value[prestamoId]);
+  if (!monto) return;
+  abonandoId.value = prestamoId;
+  try {
+    const payload: CrearAbonoPrestamoPayload = { fecha: new Date().toISOString().slice(0, 10), monto };
+    await trabajadoresApi.crearAbonoPrestamo(prestamoId, payload);
+    abonoMontoPorPrestamo.value[prestamoId] = '';
+    await cargar();
+  } catch (error) {
+    abonoError.value = isAxiosError(error)
+      ? ((error.response?.data as { message?: string } | undefined)?.message ?? 'No se pudo registrar el abono.')
+      : 'No se pudo registrar el abono.';
+  } finally {
+    abonandoId.value = null;
   }
 }
 </script>
@@ -612,6 +761,159 @@ async function guardarAsistencia(confirmar = false) {
           </div>
         </div>
       </SectionCard>
+
+      <SectionCard v-else-if="fichaTab === 'adelantos'" title="Adelantos">
+        <template #actions>
+          <button
+            v-if="esAdmin"
+            type="button"
+            class="ficha-trabajador-view__btn-ghost"
+            @click="showAdelantoForm = !showAdelantoForm"
+          >
+            {{ showAdelantoForm ? 'Cancelar' : '+ Nuevo adelanto' }}
+          </button>
+        </template>
+
+        <div v-if="showAdelantoForm" class="ficha-trabajador-view__sub-form">
+          <div v-if="adelantoError" class="ficha-trabajador-view__error">{{ adelantoError }}</div>
+          <div class="ficha-trabajador-view__form-grid">
+            <div class="ficha-trabajador-view__field">
+              <label>Fecha</label>
+              <input v-model="adelantoForm.fecha" type="date" />
+            </div>
+            <div class="ficha-trabajador-view__field">
+              <label>Monto</label>
+              <input v-model="adelantoForm.monto" type="number" min="0" step="0.01" />
+            </div>
+            <div class="ficha-trabajador-view__field">
+              <label>Moneda</label>
+              <select v-model="adelantoForm.moneda">
+                <option v-for="(label, valor) in MONEDA_LABELS" :key="valor" :value="valor">{{ label }}</option>
+              </select>
+            </div>
+            <div v-if="adelantoForm.moneda === 'VES'" class="ficha-trabajador-view__field">
+              <label>Tasa de cambio (VES por USD)</label>
+              <input v-model="adelantoForm.tasaCambio" type="number" min="0" step="0.0001" />
+            </div>
+            <div class="ficha-trabajador-view__field">
+              <label>Motivo</label>
+              <input v-model="adelantoForm.motivo" />
+            </div>
+            <div class="ficha-trabajador-view__field">
+              <label>Método de entrega (opcional)</label>
+              <input v-model="adelantoForm.metodoEntrega" />
+            </div>
+            <div class="ficha-trabajador-view__field">
+              <label>Observaciones</label>
+              <input v-model="adelantoForm.observaciones" />
+            </div>
+          </div>
+          <button
+            type="button"
+            class="ficha-trabajador-view__submit"
+            :disabled="savingAdelanto || !adelantoForm.monto || !adelantoForm.motivo"
+            @click="guardarAdelanto"
+          >
+            {{ savingAdelanto ? 'Guardando…' : 'Guardar adelanto' }}
+          </button>
+        </div>
+
+        <div v-if="adelantos.length === 0" class="ficha-trabajador-view__muted">Sin adelantos registrados.</div>
+        <div v-else class="ficha-trabajador-view__historial">
+          <div v-for="a in adelantos" :key="a.id" class="ficha-trabajador-view__historial-row">
+            <span class="ficha-trabajador-view__bold">{{ formatFecha(a.fecha) }}</span>
+            <span>{{ a.monto }} {{ a.moneda }}</span>
+            <span class="ficha-trabajador-view__muted">{{ a.motivo }}</span>
+            <span class="ficha-trabajador-view__muted">Saldo pendiente: {{ a.saldoPendiente.toFixed(2) }}</span>
+          </div>
+        </div>
+      </SectionCard>
+
+      <SectionCard v-else-if="fichaTab === 'prestamos'" title="Préstamos">
+        <template #actions>
+          <button
+            v-if="esAdmin"
+            type="button"
+            class="ficha-trabajador-view__btn-ghost"
+            @click="showPrestamoForm = !showPrestamoForm"
+          >
+            {{ showPrestamoForm ? 'Cancelar' : '+ Nuevo préstamo' }}
+          </button>
+        </template>
+
+        <div v-if="showPrestamoForm" class="ficha-trabajador-view__sub-form">
+          <div v-if="prestamoError" class="ficha-trabajador-view__error">{{ prestamoError }}</div>
+          <div class="ficha-trabajador-view__form-grid">
+            <div class="ficha-trabajador-view__field">
+              <label>Fecha</label>
+              <input v-model="prestamoForm.fecha" type="date" />
+            </div>
+            <div class="ficha-trabajador-view__field">
+              <label>Monto original</label>
+              <input v-model="prestamoForm.montoOriginal" type="number" min="0" step="0.01" />
+            </div>
+            <div class="ficha-trabajador-view__field">
+              <label>Moneda</label>
+              <select v-model="prestamoForm.moneda">
+                <option v-for="(label, valor) in MONEDA_LABELS" :key="valor" :value="valor">{{ label }}</option>
+              </select>
+            </div>
+            <div v-if="prestamoForm.moneda === 'VES'" class="ficha-trabajador-view__field">
+              <label>Tasa de cambio (VES por USD)</label>
+              <input v-model="prestamoForm.tasaCambio" type="number" min="0" step="0.0001" />
+            </div>
+            <div class="ficha-trabajador-view__field">
+              <label>Número de cuotas</label>
+              <input v-model="prestamoForm.numeroCuotas" type="number" min="1" step="1" />
+            </div>
+            <div class="ficha-trabajador-view__field">
+              <label>Valor de cuota</label>
+              <input v-model="prestamoForm.valorCuota" type="number" min="0" step="0.01" />
+            </div>
+            <div class="ficha-trabajador-view__field">
+              <label>Fecha de inicio</label>
+              <input v-model="prestamoForm.fechaInicio" type="date" />
+            </div>
+            <div class="ficha-trabajador-view__field">
+              <label>Observaciones</label>
+              <input v-model="prestamoForm.observaciones" />
+            </div>
+          </div>
+          <button
+            type="button"
+            class="ficha-trabajador-view__submit"
+            :disabled="savingPrestamo || !prestamoForm.montoOriginal || !prestamoForm.numeroCuotas || !prestamoForm.valorCuota"
+            @click="guardarPrestamo"
+          >
+            {{ savingPrestamo ? 'Guardando…' : 'Guardar préstamo' }}
+          </button>
+        </div>
+
+        <div v-if="abonoError" class="ficha-trabajador-view__error">{{ abonoError }}</div>
+        <div v-if="prestamos.length === 0" class="ficha-trabajador-view__muted">Sin préstamos registrados.</div>
+        <div v-else class="ficha-trabajador-view__historial">
+          <div v-for="p in prestamos" :key="p.id" class="ficha-trabajador-view__historial-row">
+            <div class="ficha-trabajador-view__bold">
+              {{ p.montoOriginal }} {{ p.moneda }} — {{ formatFecha(p.fecha) }}
+            </div>
+            <div class="ficha-trabajador-view__muted">
+              Saldo pendiente: {{ p.saldoPendiente.toFixed(2) }} · Cuotas pagadas: {{ p.cuotasPagadas }}/{{ p.numeroCuotas }}
+              · Valor de cuota: {{ p.valorCuota }}
+            </div>
+            <div v-if="esAdmin && p.saldoPendiente > 0" class="ficha-trabajador-view__cargo-add">
+              <input v-model="abonoMontoPorPrestamo[p.id]" type="number" min="0" step="0.01" placeholder="Monto a abonar" />
+              <button
+                type="button"
+                class="ficha-trabajador-view__submit"
+                :disabled="abonandoId === p.id"
+                @click="abonarPrestamo(p.id)"
+              >
+                Abonar
+              </button>
+            </div>
+          </div>
+        </div>
+      </SectionCard>
     </template>
   </div>
 </template>
@@ -791,6 +1093,22 @@ async function guardarAsistencia(confirmar = false) {
     flex-direction: column;
     gap: 0.6rem;
     margin-bottom: 0.85rem;
+  }
+
+  &__cargo-add {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.4rem;
+
+    input {
+      flex: 1;
+      border: 1.5px solid #efead1;
+      border-radius: 12px;
+      padding: 0.5rem 0.7rem;
+      font-size: 0.8rem;
+      background: var(--color-white);
+      font-family: inherit;
+    }
   }
 
   &__vigente {

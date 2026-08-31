@@ -7,9 +7,12 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { JwtPayload } from '../auth/jwt-payload.interface';
 import { ActualizarTrabajadorDto } from './dto/actualizar-trabajador.dto';
+import { CrearAbonoPrestamoDto } from './dto/crear-abono-prestamo.dto';
+import { CrearAdelantoDto } from './dto/crear-adelanto.dto';
 import { CrearAsignacionDto } from './dto/crear-asignacion.dto';
 import { CrearAsistenciaDto } from './dto/crear-asistencia.dto';
 import { CrearCargoDto } from './dto/crear-cargo.dto';
+import { CrearPrestamoDto } from './dto/crear-prestamo.dto';
 import { CrearTrabajadorDto } from './dto/crear-trabajador.dto';
 import { FinalizarAsignacionDto } from './dto/finalizar-asignacion.dto';
 import { ListarAsistenciaDiaQueryDto } from './dto/listar-asistencia-dia-query.dto';
@@ -104,5 +107,37 @@ export class TrabajadoresController {
   @Post(':id/asistencias')
   crearAsistencia(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Body() dto: CrearAsistenciaDto) {
     return this.trabajadoresService.crearAsistencia(user.tenantId as string, id, dto, user.sub);
+  }
+
+  @Get(':id/adelantos')
+  listarAdelantos(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.trabajadoresService.listarAdelantos(user.tenantId as string, id);
+  }
+
+  @Post(':id/adelantos')
+  @Roles(RolUsuario.ADMIN_NEGOCIO)
+  crearAdelanto(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Body() dto: CrearAdelantoDto) {
+    return this.trabajadoresService.crearAdelanto(user.tenantId as string, id, dto, user.sub);
+  }
+
+  @Get(':id/prestamos')
+  listarPrestamos(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.trabajadoresService.listarPrestamos(user.tenantId as string, id);
+  }
+
+  @Post(':id/prestamos')
+  @Roles(RolUsuario.ADMIN_NEGOCIO)
+  crearPrestamo(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Body() dto: CrearPrestamoDto) {
+    return this.trabajadoresService.crearPrestamo(user.tenantId as string, id, dto, user.sub);
+  }
+
+  @Post('prestamos/:prestamoId/abonos')
+  @Roles(RolUsuario.ADMIN_NEGOCIO)
+  crearAbonoPrestamo(
+    @CurrentUser() user: JwtPayload,
+    @Param('prestamoId') prestamoId: string,
+    @Body() dto: CrearAbonoPrestamoDto,
+  ) {
+    return this.trabajadoresService.crearAbonoPrestamo(user.tenantId as string, prestamoId, dto);
   }
 }

@@ -97,6 +97,8 @@ model Negocio {
   trabajadores           Trabajador[]
   asignaciones           Asignacion[]
   asistencias            Asistencia[]
+  adelantos              Adelanto[]
+  prestamos              Prestamo[]
 
   @@map("negocios")
 }
@@ -128,6 +130,8 @@ model Usuario {
   reportesGenerados      ReporteGenerado[]
   movimientosRegistrados AnimalMovimiento[]
   asistenciasRegistradas Asistencia[]
+  adelantosRegistrados   Adelanto[]
+  prestamosRegistrados   Prestamo[]
   invitacionesEnviadas   Invitacion[]
 
   @@map("usuarios")
@@ -973,6 +977,8 @@ model Trabajador {
   cargo        Cargo        @relation(fields: [cargoId], references: [id])
   asignaciones Asignacion[]
   asistencias  Asistencia[]
+  adelantos    Adelanto[]
+  prestamos    Prestamo[]
 
   @@unique([tenantId, documento])
   @@index([tenantId, estado])
@@ -1028,4 +1034,71 @@ model Asignacion {
 
   @@index([tenantId, trabajadorId])
   @@map("asignaciones")
+}
+
+enum MonedaTrabajador {
+  USD
+  VES
+}
+
+model Adelanto {
+  id                  String           @id @default(uuid())
+  tenantId            String           @map("tenant_id")
+  trabajadorId        String           @map("trabajador_id")
+  fecha               DateTime
+  monto               Decimal          @db.Decimal(12, 2)
+  moneda              MonedaTrabajador
+  tasaCambio          Decimal?         @map("tasa_cambio") @db.Decimal(12, 4)
+  montoEquivalenteUsd Decimal?         @map("monto_equivalente_usd") @db.Decimal(12, 2)
+  motivo              String
+  metodoEntrega       String?          @map("metodo_entrega")
+  observaciones       String?
+  montoDescontado     Decimal          @default(0) @map("monto_descontado") @db.Decimal(12, 2)
+  registradoPorId     String           @map("registrado_por")
+  createdAt           DateTime         @default(now()) @map("created_at")
+
+  negocio       Negocio    @relation(fields: [tenantId], references: [id])
+  trabajador    Trabajador @relation(fields: [trabajadorId], references: [id])
+  registradoPor Usuario    @relation(fields: [registradoPorId], references: [id])
+
+  @@index([tenantId, trabajadorId])
+  @@map("adelantos")
+}
+
+model Prestamo {
+  id                  String           @id @default(uuid())
+  tenantId            String           @map("tenant_id")
+  trabajadorId        String           @map("trabajador_id")
+  fecha               DateTime
+  montoOriginal       Decimal          @map("monto_original") @db.Decimal(12, 2)
+  moneda              MonedaTrabajador
+  tasaCambio          Decimal?         @map("tasa_cambio") @db.Decimal(12, 4)
+  montoEquivalenteUsd Decimal?         @map("monto_equivalente_usd") @db.Decimal(12, 2)
+  numeroCuotas        Int              @map("numero_cuotas")
+  valorCuota          Decimal          @map("valor_cuota") @db.Decimal(12, 2)
+  fechaInicio         DateTime         @map("fecha_inicio")
+  observaciones       String?
+  registradoPorId     String           @map("registrado_por")
+  createdAt           DateTime         @default(now()) @map("created_at")
+
+  negocio       Negocio         @relation(fields: [tenantId], references: [id])
+  trabajador    Trabajador      @relation(fields: [trabajadorId], references: [id])
+  registradoPor Usuario         @relation(fields: [registradoPorId], references: [id])
+  abonos        PrestamoAbono[]
+
+  @@index([tenantId, trabajadorId])
+  @@map("prestamos")
+}
+
+model PrestamoAbono {
+  id            String   @id @default(uuid())
+  prestamoId    String   @map("prestamo_id")
+  fecha         DateTime
+  monto         Decimal  @db.Decimal(12, 2)
+  observaciones String?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  prestamo Prestamo @relation(fields: [prestamoId], references: [id])
+
+  @@map("prestamo_abonos")
 }

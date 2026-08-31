@@ -33,6 +33,18 @@ function buildDeps() {
       create: jest.fn(),
       update: jest.fn(),
     },
+    adelanto: {
+      findMany: jest.fn().mockResolvedValue([]),
+      create: jest.fn(),
+    },
+    prestamo: {
+      findFirst: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
+      create: jest.fn(),
+    },
+    prestamoAbono: {
+      create: jest.fn(),
+    },
     $transaction: undefined as any,
   };
   prisma.$transaction = jest.fn((fn: any) => fn(prisma));
@@ -150,9 +162,12 @@ describe('TrabajadoresService.obtener', () => {
 
   it('calcula la antigüedad en años y meses desde fecha_ingreso', async () => {
     const { service, prisma } = buildDeps();
-    const haceUnAnioYDosMeses = new Date();
-    haceUnAnioYDosMeses.setUTCFullYear(haceUnAnioYDosMeses.getUTCFullYear() - 1);
-    haceUnAnioYDosMeses.setUTCMonth(haceUnAnioYDosMeses.getUTCMonth() - 2);
+    // Se fija el día en 1 antes de restar meses/años para no depender del día
+    // actual del mes (restar meses sobre un día 29-31 puede desbordar a un
+    // mes distinto si el mes destino tiene menos días — flakiness real que
+    // afectaba este test cerca de fin de mes).
+    const ahora = new Date();
+    const haceUnAnioYDosMeses = new Date(Date.UTC(ahora.getUTCFullYear() - 1, ahora.getUTCMonth() - 2, 1));
     prisma.trabajador.findFirst.mockResolvedValue({
       id: 'trab-1',
       fechaIngreso: haceUnAnioYDosMeses,
@@ -431,5 +446,125 @@ describe('TrabajadoresService.listarAsistenciaDelDia', () => {
     expect(resultado).toHaveLength(2);
     expect(resultado[0].asistencia?.horasTrabajadas).toBe(4);
     expect(resultado[1].asistencia).toBeNull();
+  });
+});
+
+describe('TrabajadoresService.crearAdelanto', () => {
+  const dtoUsd = { fecha: '2026-08-01', monto: 100, moneda: 'USD' as const, motivo: 'Emergencia' };
+
+  it('rechaza con 400 si el trabajador está inactivo', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.trabajador.findFirst.mockResolvedValue({ id: 'trab-1', estado: 'INACTIVO' });
+
+    await expect(service.crearAdelanto(TENANT_A, 'trab-1', dtoUsd, 'user-1')).rejects.toThrow(BadRequestException);
+    expect(prisma.adelanto.create).not.toHaveBeenCalled();
+  });
+
+  it('en USD no exige tasa de cambio ni calcula equivalente', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.trabajador.findFirst.mockResolvedValue({ id: 'trab-1', estado: 'ACTIVO' });
+    prisma.adelanto.create.mockResolvedValue({ id: 'adel-1' });
+
+    await service.crearAdelanto(TENANT_A, 'trab-1', dtoUsd, 'user-1');
+
+    expect(prisma.adelanto.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ tasaCambio: null, montoEquivalenteUsd: null }) }),
+    );
+  });
+
+  it('rechaza con 400 si es VES sin tasa de cambio', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.trabajador.findFirst.mockResolvedValue({ id: 'trab-1', estado: 'ACTIVO' });
+
+    await expect(
+      service.crearAdelanto(TENANT_A, 'trab-1', { ...dtoUsd, moneda: 'VES' }, 'user-1'),
+    ).rejects.toThrow(BadRequestException);
+    expect(prisma.adelanto.create).not.toHaveBeenCalled();
+  });
+
+  it('en VES calcula el equivalente en USD con la tasa dada', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.trabajador.findFirst.mockResolvedValue({ id: 'trab-1', estado: 'ACTIVO' });
+    prisma.adelanto.create.mockResolvedValue({ id: 'adel-1' });
+
+    await service.crearAdelanto(TENANT_A, 'trab-1', { ...dtoUsd, moneda: 'VES', tasaCambio: 40 }, 'user-1');
+
+    expect(prisma.adelanto.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ tasaCambio: 40, montoEquivalenteUsd: 2.5 }),
+      }),
+    );
+  });
+});
+
+describe('TrabajadoresService.listarAdelantos', () => {
+  it('calcula el saldo pendiente restando lo descontado', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.trabajador.findFirst.mockResolvedValue({ id: 'trab-1' });
+    prisma.adelanto.findMany.mockResolvedValue([{ id: 'adel-1', monto: '100', montoDescontado: '30' }]);
+
+    const resultado = await service.listarAdelantos(TENANT_A, 'trab-1');
+
+    expect(resultado[0].saldoPendiente).toBe(70);
+  });
+});
+
+describe('TrabajadoresService.crearAbonoPrestamo', () => {
+  it('lanza 404 si el préstamo no existe en el negocio', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.prestamo.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.crearAbonoPrestamo(TENANT_A, 'prest-1', { fecha: '2026-08-01', monto: 50 }),
+    ).rejects.toThrow(NotFoundException);
+  });
+
+  it('rechaza con 400 si el abono supera el saldo pendiente', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.prestamo.findFirst.mockResolvedValue({
+      id: 'prest-1',
+      montoOriginal: '300',
+      abonos: [{ monto: '250' }],
+    });
+
+    await expect(
+      service.crearAbonoPrestamo(TENANT_A, 'prest-1', { fecha: '2026-08-01', monto: 100 }),
+    ).rejects.toThrow(BadRequestException);
+    expect(prisma.prestamoAbono.create).not.toHaveBeenCalled();
+  });
+
+  it('crea el abono cuando no supera el saldo pendiente', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.prestamo.findFirst.mockResolvedValue({
+      id: 'prest-1',
+      montoOriginal: '300',
+      abonos: [{ monto: '100' }],
+    });
+    prisma.prestamoAbono.create.mockResolvedValue({ id: 'abono-1' });
+
+    await service.crearAbonoPrestamo(TENANT_A, 'prest-1', { fecha: '2026-08-01', monto: 150 });
+
+    expect(prisma.prestamoAbono.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ prestamoId: 'prest-1', monto: 150 }) }),
+    );
+  });
+});
+
+describe('TrabajadoresService.listarPrestamos', () => {
+  it('calcula totalPagado, saldoPendiente y cuotasPagadas', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.trabajador.findFirst.mockResolvedValue({ id: 'trab-1' });
+    prisma.prestamo.findMany.mockResolvedValue([
+      {
+        id: 'prest-1',
+        montoOriginal: '300',
+        valorCuota: '100',
+        abonos: [{ monto: '100' }, { monto: '100' }],
+      },
+    ]);
+
+    const resultado = await service.listarPrestamos(TENANT_A, 'trab-1');
+
+    expect(resultado[0]).toMatchObject({ totalPagado: 200, saldoPendiente: 100, cuotasPagadas: 2 });
   });
 });

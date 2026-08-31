@@ -147,6 +147,83 @@ export interface AsistenciaDelDia {
   asistencia: Asistencia | null;
 }
 
+export type MonedaTrabajador = 'USD' | 'VES';
+
+export interface Adelanto {
+  id: string;
+  tenantId: string;
+  trabajadorId: string;
+  fecha: string;
+  monto: string;
+  moneda: MonedaTrabajador;
+  tasaCambio: string | null;
+  montoEquivalenteUsd: string | null;
+  motivo: string;
+  metodoEntrega: string | null;
+  observaciones: string | null;
+  montoDescontado: string;
+  registradoPorId: string;
+  createdAt: string;
+  saldoPendiente: number;
+}
+
+export interface CrearAdelantoPayload {
+  fecha: string;
+  monto: number;
+  moneda: MonedaTrabajador;
+  tasaCambio?: number;
+  motivo: string;
+  metodoEntrega?: string;
+  observaciones?: string;
+}
+
+export interface PrestamoAbono {
+  id: string;
+  prestamoId: string;
+  fecha: string;
+  monto: string;
+  observaciones: string | null;
+  createdAt: string;
+}
+
+export interface Prestamo {
+  id: string;
+  tenantId: string;
+  trabajadorId: string;
+  fecha: string;
+  montoOriginal: string;
+  moneda: MonedaTrabajador;
+  tasaCambio: string | null;
+  montoEquivalenteUsd: string | null;
+  numeroCuotas: number;
+  valorCuota: string;
+  fechaInicio: string;
+  observaciones: string | null;
+  registradoPorId: string;
+  createdAt: string;
+  abonos: PrestamoAbono[];
+  totalPagado: number;
+  saldoPendiente: number;
+  cuotasPagadas: number;
+}
+
+export interface CrearPrestamoPayload {
+  fecha: string;
+  montoOriginal: number;
+  moneda: MonedaTrabajador;
+  tasaCambio?: number;
+  numeroCuotas: number;
+  valorCuota: number;
+  fechaInicio: string;
+  observaciones?: string;
+}
+
+export interface CrearAbonoPrestamoPayload {
+  fecha: string;
+  monto: number;
+  observaciones?: string;
+}
+
 export const trabajadoresApi = {
   listarCargos() {
     return http.get<Cargo[]>('/trabajadores/cargos').then((r) => r.data);
@@ -195,5 +272,20 @@ export const trabajadoresApi = {
   },
   listarAsistenciaDelDia(fecha: string) {
     return http.get<AsistenciaDelDia[]>('/trabajadores/asistencias/dia', { params: { fecha } }).then((r) => r.data);
+  },
+  listarAdelantos(trabajadorId: string) {
+    return http.get<Adelanto[]>(`/trabajadores/${trabajadorId}/adelantos`).then((r) => r.data);
+  },
+  crearAdelanto(trabajadorId: string, payload: CrearAdelantoPayload) {
+    return http.post<Adelanto>(`/trabajadores/${trabajadorId}/adelantos`, payload).then((r) => r.data);
+  },
+  listarPrestamos(trabajadorId: string) {
+    return http.get<Prestamo[]>(`/trabajadores/${trabajadorId}/prestamos`).then((r) => r.data);
+  },
+  crearPrestamo(trabajadorId: string, payload: CrearPrestamoPayload) {
+    return http.post<Prestamo>(`/trabajadores/${trabajadorId}/prestamos`, payload).then((r) => r.data);
+  },
+  crearAbonoPrestamo(prestamoId: string, payload: CrearAbonoPrestamoPayload) {
+    return http.post<PrestamoAbono>(`/trabajadores/prestamos/${prestamoId}/abonos`, payload).then((r) => r.data);
   },
 };
