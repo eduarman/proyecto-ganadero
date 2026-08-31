@@ -290,6 +290,28 @@ export interface ConfirmarPagoPayload {
   confirmar?: boolean;
 }
 
+export type TipoReporteTrabajador = 'trabajadores' | 'asistencia' | 'pagos' | 'costo-laboral';
+export type FormatoReporteTrabajador = 'xlsx' | 'pdf' | 'csv';
+
+export interface TablaReporteTrabajador {
+  titulo: string;
+  columnas: string[];
+  filas: (string | number)[][];
+}
+
+export interface DatosReporteTrabajador {
+  tipo: TipoReporteTrabajador;
+  generadoEn: string;
+  filtros: { desde?: string; hasta?: string };
+  resumen: Record<string, string | number>;
+  tablas: TablaReporteTrabajador[];
+}
+
+export interface FiltrosReporteTrabajadorParams {
+  desde?: string;
+  hasta?: string;
+}
+
 export const trabajadoresApi = {
   listarCargos() {
     return http.get<Cargo[]>('/trabajadores/cargos').then((r) => r.data);
@@ -364,5 +386,13 @@ export const trabajadoresApi = {
   },
   confirmarPago(trabajadorId: string, payload: ConfirmarPagoPayload) {
     return http.post<Pago>(`/trabajadores/${trabajadorId}/pagos`, payload).then((r) => r.data);
+  },
+  obtenerReporte(tipo: TipoReporteTrabajador, params: FiltrosReporteTrabajadorParams = {}) {
+    return http.get<DatosReporteTrabajador>(`/trabajadores/reportes/${tipo}`, { params }).then((r) => r.data);
+  },
+  exportarReporte(tipo: TipoReporteTrabajador, formato: FormatoReporteTrabajador, params: FiltrosReporteTrabajadorParams = {}) {
+    return http
+      .get(`/trabajadores/reportes/${tipo}/exportar`, { params: { ...params, formato }, responseType: 'blob' })
+      .then((r) => r.data as Blob);
   },
 };

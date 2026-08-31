@@ -187,6 +187,9 @@ async function inactivarCargo(id: string) {
         <button type="button" class="trabajadores-view__link-btn" @click="router.push('/trabajadores/asistencia')">
           Asistencia del día
         </button>
+        <button type="button" class="trabajadores-view__link-btn" @click="router.push('/trabajadores/reportes')">
+          Reportes
+        </button>
         <button type="button" class="trabajadores-view__link-btn" @click="showCargos = !showCargos">
           {{ showCargos ? 'Cerrar cargos' : 'Gestionar cargos' }}
         </button>

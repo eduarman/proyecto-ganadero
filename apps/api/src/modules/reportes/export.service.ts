@@ -43,6 +43,32 @@ export class ExportService {
     return Buffer.from(buffer);
   }
 
+  renderCsv(datos: DatosReporte): string {
+    const filas: string[] = [];
+    const celda = (valor: string | number): string => {
+      const texto = String(valor);
+      return /[",\n]/.test(texto) ? `"${texto.replace(/"/g, '""')}"` : texto;
+    };
+
+    filas.push(celda(nombreTipo(datos)));
+    filas.push(celda(`Generado: ${new Date(datos.generadoEn).toLocaleString('es-ES')}`));
+    filas.push('');
+    for (const [clave, valor] of Object.entries(datos.resumen)) {
+      filas.push(`${celda(clave)},${celda(valor)}`);
+    }
+
+    for (const tabla of datos.tablas) {
+      filas.push('');
+      filas.push(celda(tabla.titulo));
+      filas.push(tabla.columnas.map(celda).join(','));
+      for (const fila of tabla.filas) {
+        filas.push(fila.map(celda).join(','));
+      }
+    }
+
+    return filas.join('\n');
+  }
+
   private renderHtml(datos: DatosReporte): string {
     const filaResumen = Object.entries(datos.resumen)
       .map(([k, v]) => `<tr><td>${k}</td><td><strong>${v}</strong></td></tr>`)

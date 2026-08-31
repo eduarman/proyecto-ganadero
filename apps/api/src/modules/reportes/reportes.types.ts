@@ -7,7 +7,7 @@ export interface TablaReporte {
 }
 
 export interface DatosReporte {
-  tipo: TipoReporte;
+  tipo: TipoReporte | string;
   generadoEn: string;
   filtros: { desde?: string; hasta?: string; potreroId?: string };
   resumen: Record<string, string | number>;

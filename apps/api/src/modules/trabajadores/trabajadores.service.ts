@@ -1,5 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { MonedaTrabajador, Prisma } from '@prisma/client';
+import { ExportService } from '../reportes/export.service';
+import { DatosReporte } from '../reportes/reportes.types';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ActualizarTrabajadorDto } from './dto/actualizar-trabajador.dto';
 import { ConfirmarPagoDto } from './dto/confirmar-pago.dto';
@@ -10,6 +12,8 @@ import { CrearAsistenciaDto } from './dto/crear-asistencia.dto';
 import { CrearCargoDto } from './dto/crear-cargo.dto';
 import { CrearPrestamoDto } from './dto/crear-prestamo.dto';
 import { CrearTrabajadorDto } from './dto/crear-trabajador.dto';
+import { ExportarReporteTrabajadorDto, FormatoReporteTrabajador } from './dto/exportar-reporte-trabajador.dto';
+import { FiltrosReporteTrabajadorDto } from './dto/filtros-reporte-trabajador.dto';
 import { FinalizarAsignacionDto } from './dto/finalizar-asignacion.dto';
 import { ListarTrabajadoresQueryDto } from './dto/listar-trabajadores-query.dto';
 import { PrevisualizarPagoDto } from './dto/previsualizar-pago.dto';
@@ -53,9 +57,52 @@ function calcularAntiguedad(fechaIngreso: Date): { anios: number; meses: number 
   return { anios: Math.floor(meses / 12), meses: meses % 12 };
 }
 
+const NOMBRES_MES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+
+function claveMes(fecha: Date): string {
+  return `${fecha.getUTCFullYear()}-${String(fecha.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+function etiquetaMes(clave: string): string {
+  const [anio, mes] = clave.split('-');
+  return `${NOMBRES_MES[Number(mes) - 1]} ${anio}`;
+}
+
+function mesesEnRango(desde: Date, hasta: Date): string[] {
+  const claves: string[] = [];
+  const cursor = new Date(Date.UTC(desde.getUTCFullYear(), desde.getUTCMonth(), 1));
+  const limite = new Date(Date.UTC(hasta.getUTCFullYear(), hasta.getUTCMonth(), 1));
+  while (cursor <= limite) {
+    claves.push(claveMes(cursor));
+    cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+  }
+  return claves;
+}
+
+// Reportes de trabajadores/asistencia/pagos no definen un período por
+// defecto en el spec — se usa una ventana de 30 días (grano diario, a
+// diferencia de los 6 meses por defecto de `reportes.service.ts`, pensados
+// para series mensuales).
+function resolverRangoTrabajador(filtros: FiltrosReporteTrabajadorDto): { desde: Date; hasta: Date } {
+  const hasta = filtros.hasta ? new Date(filtros.hasta) : new Date();
+  const desde = filtros.desde ? new Date(filtros.desde) : new Date(hasta.getTime() - 29 * 24 * 60 * 60 * 1000);
+  return { desde, hasta };
+}
+
+function montoPagoEnUsd(
+  moneda: MonedaTrabajador,
+  montoTotal: Prisma.Decimal | number | string,
+  montoEquivalenteUsd: Prisma.Decimal | number | string | null,
+): number {
+  return moneda === 'USD' ? Number(montoTotal) : Number(montoEquivalenteUsd ?? 0);
+}
+
 @Injectable()
 export class TrabajadoresService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly exportService: ExportService,
+  ) {}
 
   // --- Cargos (catálogo) ---------------------------------------------------
 
@@ -647,5 +694,227 @@ export class TrabajadoresService {
       where: { tenantId, trabajadorId },
       orderBy: { fecha: 'desc' },
     });
+  }
+
+  // --- Reportes ----------------------------------------------------------
+
+  private async reporteTrabajadores(tenantId: string): Promise<DatosReporte> {
+    const trabajadores = await this.prisma.trabajador.findMany({
+      where: { tenantId },
+      include: { cargo: true },
+    });
+
+    const activos = trabajadores.filter((t) => t.estado === 'ACTIVO').length;
+    const inactivos = trabajadores.length - activos;
+
+    const porCargo = new Map<string, { activos: number; inactivos: number }>();
+    for (const t of trabajadores) {
+      const entry = porCargo.get(t.cargo.nombre) ?? { activos: 0, inactivos: 0 };
+      if (t.estado === 'ACTIVO') entry.activos += 1;
+      else entry.inactivos += 1;
+      porCargo.set(t.cargo.nombre, entry);
+    }
+
+    return {
+      tipo: 'trabajadores',
+      generadoEn: new Date().toISOString(),
+      filtros: {},
+      resumen: { Activos: activos, Inactivos: inactivos, Total: trabajadores.length },
+      tablas: [
+        {
+          titulo: 'Por cargo',
+          columnas: ['Cargo', 'Activos', 'Inactivos', 'Total'],
+          filas: Array.from(porCargo.entries()).map(([cargo, e]) => [cargo, e.activos, e.inactivos, e.activos + e.inactivos]),
+        },
+      ],
+    };
+  }
+
+  private async reporteAsistencia(tenantId: string, filtrosDto: FiltrosReporteTrabajadorDto): Promise<DatosReporte> {
+    const { desde, hasta } = resolverRangoTrabajador(filtrosDto);
+    const asistencias = await this.prisma.asistencia.findMany({
+      where: { tenantId, fecha: { gte: desde, lte: hasta } },
+      include: { trabajador: { select: { nombres: true, apellidos: true } } },
+    });
+
+    const conteoPorEstado: Record<string, number> = {
+      PRESENTE: 0,
+      AUSENTE: 0,
+      PERMISO: 0,
+      VACACIONES: 0,
+      FALTA_JUSTIFICADA: 0,
+      FALTA_INJUSTIFICADA: 0,
+    };
+    let horasTotales = 0;
+    const porTrabajador = new Map<string, { jornadas: number; horas: number; ausencias: number }>();
+
+    for (const a of asistencias) {
+      conteoPorEstado[a.estado] = (conteoPorEstado[a.estado] ?? 0) + 1;
+      const horas = calcularHorasTrabajadas(a.horaEntrada, a.horaSalida) ?? 0;
+      horasTotales += horas;
+      const nombre = `${a.trabajador.nombres} ${a.trabajador.apellidos}`;
+      const entry = porTrabajador.get(nombre) ?? { jornadas: 0, horas: 0, ausencias: 0 };
+      if (a.estado === 'PRESENTE') entry.jornadas += 1;
+      if (a.estado === 'AUSENTE') entry.ausencias += 1;
+      entry.horas += horas;
+      porTrabajador.set(nombre, entry);
+    }
+
+    return {
+      tipo: 'asistencia',
+      generadoEn: new Date().toISOString(),
+      filtros: { desde: desde.toISOString(), hasta: hasta.toISOString() },
+      resumen: {
+        Jornadas: conteoPorEstado.PRESENTE,
+        'Horas trabajadas': Math.round(horasTotales * 100) / 100,
+        Ausencias: conteoPorEstado.AUSENTE,
+        Permisos: conteoPorEstado.PERMISO,
+        Vacaciones: conteoPorEstado.VACACIONES,
+        'Faltas justificadas': conteoPorEstado.FALTA_JUSTIFICADA,
+        'Faltas injustificadas': conteoPorEstado.FALTA_INJUSTIFICADA,
+      },
+      tablas: [
+        {
+          titulo: 'Por trabajador',
+          columnas: ['Trabajador', 'Jornadas', 'Horas', 'Ausencias'],
+          filas: Array.from(porTrabajador.entries()).map(([nombre, e]) => [
+            nombre,
+            e.jornadas,
+            Math.round(e.horas * 100) / 100,
+            e.ausencias,
+          ]),
+        },
+      ],
+    };
+  }
+
+  private async reportePagos(tenantId: string, filtrosDto: FiltrosReporteTrabajadorDto): Promise<DatosReporte> {
+    const { desde, hasta } = resolverRangoTrabajador(filtrosDto);
+    const pagos = await this.prisma.pago.findMany({
+      where: { tenantId, fecha: { gte: desde, lte: hasta } },
+      include: { trabajador: { select: { nombres: true, apellidos: true } } },
+    });
+
+    let totalUsd = 0;
+    const porTrabajador = new Map<string, number>();
+    const porConcepto = new Map<string, number>();
+
+    for (const p of pagos) {
+      const monto = montoPagoEnUsd(p.moneda, p.montoTotal, p.montoEquivalenteUsd);
+      totalUsd += monto;
+      const nombre = `${p.trabajador.nombres} ${p.trabajador.apellidos}`;
+      porTrabajador.set(nombre, (porTrabajador.get(nombre) ?? 0) + monto);
+      porConcepto.set(p.tipo, (porConcepto.get(p.tipo) ?? 0) + monto);
+    }
+
+    return {
+      tipo: 'pagos',
+      generadoEn: new Date().toISOString(),
+      filtros: { desde: desde.toISOString(), hasta: hasta.toISOString() },
+      resumen: { 'Total pagado (USD equiv.)': Number(totalUsd.toFixed(2)), 'Cantidad de pagos': pagos.length },
+      tablas: [
+        {
+          titulo: 'Por trabajador',
+          columnas: ['Trabajador', 'Total (USD equiv.)'],
+          filas: Array.from(porTrabajador.entries()).map(([nombre, monto]) => [nombre, Number(monto.toFixed(2))]),
+        },
+        {
+          titulo: 'Por concepto',
+          columnas: ['Tipo', 'Total (USD equiv.)'],
+          filas: Array.from(porConcepto.entries()).map(([tipo, monto]) => [tipo, Number(monto.toFixed(2))]),
+        },
+      ],
+    };
+  }
+
+  private async reporteCostoLaboral(tenantId: string, filtrosDto: FiltrosReporteTrabajadorDto): Promise<DatosReporte> {
+    const { desde, hasta } = resolverRangoTrabajador(filtrosDto);
+    const [trabajadoresActivos, asistencias, pagos] = await Promise.all([
+      this.prisma.trabajador.count({ where: { tenantId, estado: 'ACTIVO' } }),
+      this.prisma.asistencia.findMany({ where: { tenantId, fecha: { gte: desde, lte: hasta } } }),
+      this.prisma.pago.findMany({ where: { tenantId, fecha: { gte: desde, lte: hasta } } }),
+    ]);
+
+    const jornadas = asistencias.filter((a) => a.estado === 'PRESENTE').length;
+    const jornalesRealizados = asistencias.reduce((acc, a) => acc + Number(a.jornalRealizado ?? 0), 0);
+
+    let totalSalarios = 0;
+    let totalBonos = 0;
+    let totalOtros = 0;
+    const claves = mesesEnRango(desde, hasta);
+    const porMes = new Map(claves.map((c) => [c, 0]));
+
+    for (const p of pagos) {
+      const monto = montoPagoEnUsd(p.moneda, p.montoTotal, p.montoEquivalenteUsd);
+      if (p.tipo === 'SALARIO' || p.tipo === 'JORNAL') totalSalarios += monto;
+      else if (p.tipo === 'BONO' || p.tipo === 'COMISION') totalBonos += monto;
+      else totalOtros += monto;
+      const clave = claveMes(p.fecha);
+      porMes.set(clave, (porMes.get(clave) ?? 0) + monto);
+    }
+
+    const costoTotal = totalSalarios + totalBonos + totalOtros;
+
+    return {
+      tipo: 'costo-laboral',
+      generadoEn: new Date().toISOString(),
+      filtros: { desde: desde.toISOString(), hasta: hasta.toISOString() },
+      resumen: {
+        'Trabajadores activos': trabajadoresActivos,
+        'Jornadas del período': jornadas,
+        'Jornales realizados': jornalesRealizados,
+        'Total salarios (USD equiv.)': Number(totalSalarios.toFixed(2)),
+        'Total bonos (USD equiv.)': Number(totalBonos.toFixed(2)),
+        'Otros pagos (USD equiv.)': Number(totalOtros.toFixed(2)),
+        'Costo laboral total (USD equiv.)': Number(costoTotal.toFixed(2)),
+      },
+      tablas: [
+        {
+          titulo: 'Por mes',
+          columnas: ['Mes', 'Costo (USD equiv.)'],
+          filas: claves.map((c) => [etiquetaMes(c), Number((porMes.get(c) ?? 0).toFixed(2))]),
+        },
+      ],
+    };
+  }
+
+  async obtenerReporte(tenantId: string, tipo: string, filtros: FiltrosReporteTrabajadorDto): Promise<DatosReporte> {
+    switch (tipo) {
+      case 'trabajadores':
+        return this.reporteTrabajadores(tenantId);
+      case 'asistencia':
+        return this.reporteAsistencia(tenantId, filtros);
+      case 'pagos':
+        return this.reportePagos(tenantId, filtros);
+      case 'costo-laboral':
+        return this.reporteCostoLaboral(tenantId, filtros);
+      default:
+        throw new BadRequestException(`Tipo de reporte no soportado: ${tipo}`);
+    }
+  }
+
+  async exportarReporte(
+    tenantId: string,
+    tipo: string,
+    dto: ExportarReporteTrabajadorDto,
+  ): Promise<{ buffer: Buffer; contentType: string; filename: string }> {
+    const datos = await this.obtenerReporte(tenantId, tipo, dto);
+    const fecha = new Date().toISOString().slice(0, 10);
+    const formato: FormatoReporteTrabajador = dto.formato;
+
+    if (formato === 'csv') {
+      const csv = this.exportService.renderCsv(datos);
+      return { buffer: Buffer.from(csv, 'utf-8'), contentType: 'text/csv', filename: `reporte-${tipo}-${fecha}.csv` };
+    }
+    if (formato === 'pdf') {
+      const buffer = await this.exportService.renderPdf(datos);
+      return { buffer, contentType: 'application/pdf', filename: `reporte-${tipo}-${fecha}.pdf` };
+    }
+    const buffer = await this.exportService.renderXlsx(datos);
+    return {
+      buffer,
+      contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      filename: `reporte-${tipo}-${fecha}.xlsx`,
+    };
   }
 }

@@ -1,5 +1,6 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Res, StreamableFile, UseGuards } from '@nestjs/common';
 import { RolUsuario } from '@prisma/client';
+import type { Response } from 'express';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { TenantGuard } from '../../common/guards/tenant.guard';
@@ -15,6 +16,8 @@ import { CrearAsistenciaDto } from './dto/crear-asistencia.dto';
 import { CrearCargoDto } from './dto/crear-cargo.dto';
 import { CrearPrestamoDto } from './dto/crear-prestamo.dto';
 import { CrearTrabajadorDto } from './dto/crear-trabajador.dto';
+import { ExportarReporteTrabajadorDto } from './dto/exportar-reporte-trabajador.dto';
+import { FiltrosReporteTrabajadorDto } from './dto/filtros-reporte-trabajador.dto';
 import { FinalizarAsignacionDto } from './dto/finalizar-asignacion.dto';
 import { ListarAsistenciaDiaQueryDto } from './dto/listar-asistencia-dia-query.dto';
 import { ListarTrabajadoresQueryDto } from './dto/listar-trabajadores-query.dto';
@@ -50,6 +53,31 @@ export class TrabajadoresController {
   @Get('asistencias/dia')
   listarAsistenciaDelDia(@CurrentUser() user: JwtPayload, @Query() query: ListarAsistenciaDiaQueryDto) {
     return this.trabajadoresService.listarAsistenciaDelDia(user.tenantId as string, query.fecha);
+  }
+
+  @Get('reportes/:tipo')
+  obtenerReporte(
+    @CurrentUser() user: JwtPayload,
+    @Param('tipo') tipo: string,
+    @Query() query: FiltrosReporteTrabajadorDto,
+  ) {
+    return this.trabajadoresService.obtenerReporte(user.tenantId as string, tipo, query);
+  }
+
+  @Get('reportes/:tipo/exportar')
+  async exportarReporte(
+    @CurrentUser() user: JwtPayload,
+    @Param('tipo') tipo: string,
+    @Query() query: ExportarReporteTrabajadorDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { buffer, contentType, filename } = await this.trabajadoresService.exportarReporte(
+      user.tenantId as string,
+      tipo,
+      query,
+    );
+    res.set({ 'Content-Type': contentType, 'Content-Disposition': `attachment; filename="${filename}"` });
+    return new StreamableFile(buffer);
   }
 
   @Get()

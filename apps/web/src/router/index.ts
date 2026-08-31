@@ -150,6 +150,16 @@ const router = createRouter({
           },
         },
         {
+          path: 'trabajadores/reportes',
+          name: 'trabajadores-reportes',
+          component: () => import('../modules/trabajadores/views/ReportesTrabajadoresView.vue'),
+          meta: {
+            navKey: 'trabajadores',
+            title: 'Reportes de trabajadores',
+            subtitle: 'Trabajadores, asistencia, pagos y costo laboral',
+          },
+        },
+        {
           path: 'trabajadores/:id',
           name: 'trabajador-ficha',
           component: () => import('../modules/trabajadores/views/FichaTrabajadorView.vue'),

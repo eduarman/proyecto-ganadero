@@ -55,8 +55,14 @@ function buildDeps() {
   };
   prisma.$transaction = jest.fn((fn: any) => fn(prisma));
 
-  const service = new TrabajadoresService(prisma as any);
-  return { service, prisma };
+  const exportService = {
+    renderXlsx: jest.fn().mockResolvedValue(Buffer.from('xlsx')),
+    renderPdf: jest.fn().mockResolvedValue(Buffer.from('pdf')),
+    renderCsv: jest.fn().mockReturnValue('csv'),
+  };
+
+  const service = new TrabajadoresService(prisma as any, exportService as any);
+  return { service, prisma, exportService };
 }
 
 const TENANT_A = 'negocio-a';
@@ -752,5 +758,144 @@ describe('TrabajadoresService.confirmarPago', () => {
         data: expect.objectContaining({ tasaCambio: 40, montoEquivalenteUsd: 100 }),
       }),
     );
+  });
+});
+
+describe('TrabajadoresService.obtenerReporte', () => {
+  it('rechaza con 400 un tipo de reporte desconocido', async () => {
+    const { service } = buildDeps();
+
+    await expect(service.obtenerReporte(TENANT_A, 'inexistente', {})).rejects.toThrow(BadRequestException);
+  });
+
+  it('reporte de trabajadores cuenta activos/inactivos y agrupa por cargo', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.trabajador.findMany.mockResolvedValue([
+      { estado: 'ACTIVO', cargo: { nombre: 'Ordeñador' } },
+      { estado: 'ACTIVO', cargo: { nombre: 'Ordeñador' } },
+      { estado: 'INACTIVO', cargo: { nombre: 'Caporal' } },
+    ]);
+
+    const resultado = await service.obtenerReporte(TENANT_A, 'trabajadores', {});
+
+    expect(resultado.resumen).toMatchObject({ Activos: 2, Inactivos: 1, Total: 3 });
+    expect(resultado.tablas[0].filas).toEqual(
+      expect.arrayContaining([
+        ['Ordeñador', 2, 0, 2],
+        ['Caporal', 0, 1, 1],
+      ]),
+    );
+  });
+
+  it('reporte de asistencia agrega jornadas/horas/ausencias dentro del rango', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.asistencia.findMany.mockResolvedValue([
+      { estado: 'PRESENTE', horaEntrada: '08:00', horaSalida: '12:00', trabajador: { nombres: 'Juan', apellidos: 'Pérez' } },
+      { estado: 'PRESENTE', horaEntrada: null, horaSalida: null, trabajador: { nombres: 'Juan', apellidos: 'Pérez' } },
+      { estado: 'AUSENTE', horaEntrada: null, horaSalida: null, trabajador: { nombres: 'Juan', apellidos: 'Pérez' } },
+      { estado: 'PERMISO', horaEntrada: null, horaSalida: null, trabajador: { nombres: 'Ana', apellidos: 'Ruiz' } },
+    ]);
+
+    const resultado = await service.obtenerReporte(TENANT_A, 'asistencia', { desde: '2026-08-01', hasta: '2026-08-31' });
+
+    expect(resultado.resumen).toMatchObject({
+      Jornadas: 2,
+      'Horas trabajadas': 4,
+      Ausencias: 1,
+      Permisos: 1,
+    });
+    expect(resultado.tablas[0].filas).toEqual(
+      expect.arrayContaining([
+        ['Juan Pérez', 2, 4, 1],
+        ['Ana Ruiz', 0, 0, 0],
+      ]),
+    );
+  });
+
+  it('reporte de pagos convierte VES a equivalente USD y agrupa por concepto', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.pago.findMany.mockResolvedValue([
+      {
+        moneda: 'USD',
+        montoTotal: '100',
+        montoEquivalenteUsd: null,
+        tipo: 'SALARIO',
+        trabajador: { nombres: 'Juan', apellidos: 'Pérez' },
+      },
+      {
+        moneda: 'VES',
+        montoTotal: '4000',
+        montoEquivalenteUsd: '100',
+        tipo: 'BONO',
+        trabajador: { nombres: 'Juan', apellidos: 'Pérez' },
+      },
+    ]);
+
+    const resultado = await service.obtenerReporte(TENANT_A, 'pagos', {});
+
+    expect(resultado.resumen).toMatchObject({ 'Total pagado (USD equiv.)': 200, 'Cantidad de pagos': 2 });
+    const porConcepto = resultado.tablas.find((t) => t.titulo === 'Por concepto')!;
+    expect(porConcepto.filas).toEqual(expect.arrayContaining([['SALARIO', 100], ['BONO', 100]]));
+  });
+
+  it('reporte de costo laboral parte salarios/bonos/otros correctamente', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.trabajador.count.mockResolvedValue(5);
+    prisma.asistencia.findMany.mockResolvedValue([
+      { estado: 'PRESENTE', jornalRealizado: '1' },
+      { estado: 'PRESENTE', jornalRealizado: '1' },
+    ]);
+    prisma.pago.findMany.mockResolvedValue([
+      { moneda: 'USD', montoTotal: '100', montoEquivalenteUsd: null, tipo: 'SALARIO', fecha: new Date('2026-08-05') },
+      { moneda: 'USD', montoTotal: '50', montoEquivalenteUsd: null, tipo: 'BONO', fecha: new Date('2026-08-10') },
+      { moneda: 'USD', montoTotal: '20', montoEquivalenteUsd: null, tipo: 'OTRO', fecha: new Date('2026-08-15') },
+    ]);
+
+    const resultado = await service.obtenerReporte(TENANT_A, 'costo-laboral', {
+      desde: '2026-08-01',
+      hasta: '2026-08-31',
+    });
+
+    expect(resultado.resumen).toMatchObject({
+      'Trabajadores activos': 5,
+      'Jornadas del período': 2,
+      'Jornales realizados': 2,
+      'Total salarios (USD equiv.)': 100,
+      'Total bonos (USD equiv.)': 50,
+      'Otros pagos (USD equiv.)': 20,
+      'Costo laboral total (USD equiv.)': 170,
+    });
+  });
+});
+
+describe('TrabajadoresService.exportarReporte', () => {
+  it('genera CSV llamando a exportService.renderCsv', async () => {
+    const { service, prisma, exportService } = buildDeps();
+    prisma.trabajador.findMany.mockResolvedValue([]);
+
+    const resultado = await service.exportarReporte(TENANT_A, 'trabajadores', { formato: 'csv' });
+
+    expect(exportService.renderCsv).toHaveBeenCalled();
+    expect(resultado.contentType).toBe('text/csv');
+  });
+
+  it('genera XLSX llamando a exportService.renderXlsx', async () => {
+    const { service, prisma, exportService } = buildDeps();
+    prisma.trabajador.findMany.mockResolvedValue([]);
+
+    const resultado = await service.exportarReporte(TENANT_A, 'trabajadores', { formato: 'xlsx' });
+
+    expect(exportService.renderXlsx).toHaveBeenCalled();
+    expect(resultado.contentType).toContain('spreadsheetml');
+  });
+
+  it('genera PDF llamando a exportService.renderPdf', async () => {
+    const { service, prisma, exportService } = buildDeps();
+    prisma.trabajador.findMany.mockResolvedValue([]);
+
+    const resultado = await service.exportarReporte(TENANT_A, 'trabajadores', { formato: 'pdf' });
+
+    expect(exportService.renderPdf).toHaveBeenCalled();
+    expect(resultado.contentType).toBe('application/pdf');
   });
 });
