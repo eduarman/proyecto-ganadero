@@ -104,6 +104,31 @@ export class TrabajadoresService {
     private readonly exportService: ExportService,
   ) {}
 
+  // No se construye un sistema de auditoría genérico — es específico de este
+  // módulo (no existe uno general hoy en la plataforma). Cada mutación
+  // crítica escribe su fila dentro de la misma transacción.
+  private registrarHistorial(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    trabajadorId: string,
+    tipo: string,
+    descripcion: string,
+    usuarioId: string,
+    data?: unknown,
+  ) {
+    return tx.historialTrabajador.create({
+      data: { tenantId, trabajadorId, tipo, descripcion, usuarioId, data: data as Prisma.InputJsonValue },
+    });
+  }
+
+  async listarHistorial(tenantId: string, trabajadorId: string) {
+    await this.obtenerSinAntiguedad(tenantId, trabajadorId);
+    return this.prisma.historialTrabajador.findMany({
+      where: { tenantId, trabajadorId },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   // --- Cargos (catálogo) ---------------------------------------------------
 
   async crearCargo(tenantId: string, dto: CrearCargoDto) {
@@ -168,29 +193,33 @@ export class TrabajadoresService {
     }
   }
 
-  async crear(tenantId: string, dto: CrearTrabajadorDto) {
+  async crear(tenantId: string, dto: CrearTrabajadorDto, usuarioId: string) {
     await this.assertDocumentoDisponible(tenantId, dto.documento);
     await this.assertCargoValido(tenantId, dto.cargoId);
 
-    return this.prisma.trabajador.create({
-      data: {
-        tenantId,
-        nombres: dto.nombres,
-        apellidos: dto.apellidos,
-        documento: dto.documento,
-        cargoId: dto.cargoId,
-        fechaIngreso: new Date(dto.fechaIngreso),
-        tipoContratacion: dto.tipoContratacion,
-        modalidadPago: dto.modalidadPago,
-        salarioOJornal: dto.salarioOJornal,
-        fechaNacimiento: dto.fechaNacimiento ? new Date(dto.fechaNacimiento) : null,
-        telefono: dto.telefono,
-        email: dto.email,
-        direccion: dto.direccion,
-        contactoEmergenciaNombre: dto.contactoEmergenciaNombre,
-        contactoEmergenciaTelefono: dto.contactoEmergenciaTelefono,
-      },
-      include: { cargo: true },
+    return this.prisma.$transaction(async (tx) => {
+      const trabajador = await tx.trabajador.create({
+        data: {
+          tenantId,
+          nombres: dto.nombres,
+          apellidos: dto.apellidos,
+          documento: dto.documento,
+          cargoId: dto.cargoId,
+          fechaIngreso: new Date(dto.fechaIngreso),
+          tipoContratacion: dto.tipoContratacion,
+          modalidadPago: dto.modalidadPago,
+          salarioOJornal: dto.salarioOJornal,
+          fechaNacimiento: dto.fechaNacimiento ? new Date(dto.fechaNacimiento) : null,
+          telefono: dto.telefono,
+          email: dto.email,
+          direccion: dto.direccion,
+          contactoEmergenciaNombre: dto.contactoEmergenciaNombre,
+          contactoEmergenciaTelefono: dto.contactoEmergenciaTelefono,
+        },
+        include: { cargo: true },
+      });
+      await this.registrarHistorial(tx, tenantId, trabajador.id, 'alta', 'Alta del trabajador', usuarioId);
+      return trabajador;
     });
   }
 
@@ -233,7 +262,7 @@ export class TrabajadoresService {
     return { ...trabajador, antiguedad: calcularAntiguedad(trabajador.fechaIngreso) };
   }
 
-  async actualizar(tenantId: string, id: string, dto: ActualizarTrabajadorDto) {
+  async actualizar(tenantId: string, id: string, dto: ActualizarTrabajadorDto, usuarioId: string) {
     await this.obtenerSinAntiguedad(tenantId, id);
 
     if (dto.documento) {
@@ -243,25 +272,29 @@ export class TrabajadoresService {
       await this.assertCargoValido(tenantId, dto.cargoId);
     }
 
-    return this.prisma.trabajador.update({
-      where: { id },
-      data: {
-        nombres: dto.nombres,
-        apellidos: dto.apellidos,
-        documento: dto.documento,
-        cargoId: dto.cargoId,
-        fechaIngreso: dto.fechaIngreso ? new Date(dto.fechaIngreso) : undefined,
-        tipoContratacion: dto.tipoContratacion,
-        modalidadPago: dto.modalidadPago,
-        salarioOJornal: dto.salarioOJornal,
-        fechaNacimiento: dto.fechaNacimiento ? new Date(dto.fechaNacimiento) : undefined,
-        telefono: dto.telefono,
-        email: dto.email,
-        direccion: dto.direccion,
-        contactoEmergenciaNombre: dto.contactoEmergenciaNombre,
-        contactoEmergenciaTelefono: dto.contactoEmergenciaTelefono,
-      },
-      include: { cargo: true },
+    return this.prisma.$transaction(async (tx) => {
+      const trabajador = await tx.trabajador.update({
+        where: { id },
+        data: {
+          nombres: dto.nombres,
+          apellidos: dto.apellidos,
+          documento: dto.documento,
+          cargoId: dto.cargoId,
+          fechaIngreso: dto.fechaIngreso ? new Date(dto.fechaIngreso) : undefined,
+          tipoContratacion: dto.tipoContratacion,
+          modalidadPago: dto.modalidadPago,
+          salarioOJornal: dto.salarioOJornal,
+          fechaNacimiento: dto.fechaNacimiento ? new Date(dto.fechaNacimiento) : undefined,
+          telefono: dto.telefono,
+          email: dto.email,
+          direccion: dto.direccion,
+          contactoEmergenciaNombre: dto.contactoEmergenciaNombre,
+          contactoEmergenciaTelefono: dto.contactoEmergenciaTelefono,
+        },
+        include: { cargo: true },
+      });
+      await this.registrarHistorial(tx, tenantId, id, 'edicion', 'Edición de datos del trabajador', usuarioId, dto);
+      return trabajador;
     });
   }
 
@@ -273,14 +306,22 @@ export class TrabajadoresService {
     return trabajador;
   }
 
-  async activar(tenantId: string, id: string) {
+  async activar(tenantId: string, id: string, usuarioId: string) {
     await this.obtenerSinAntiguedad(tenantId, id);
-    return this.prisma.trabajador.update({ where: { id }, data: { estado: 'ACTIVO' } });
+    return this.prisma.$transaction(async (tx) => {
+      const trabajador = await tx.trabajador.update({ where: { id }, data: { estado: 'ACTIVO' } });
+      await this.registrarHistorial(tx, tenantId, id, 'cambio_estado', 'Cambio de estado a ACTIVO', usuarioId);
+      return trabajador;
+    });
   }
 
-  async inactivar(tenantId: string, id: string) {
+  async inactivar(tenantId: string, id: string, usuarioId: string) {
     await this.obtenerSinAntiguedad(tenantId, id);
-    return this.prisma.trabajador.update({ where: { id }, data: { estado: 'INACTIVO' } });
+    return this.prisma.$transaction(async (tx) => {
+      const trabajador = await tx.trabajador.update({ where: { id }, data: { estado: 'INACTIVO' } });
+      await this.registrarHistorial(tx, tenantId, id, 'cambio_estado', 'Cambio de estado a INACTIVO', usuarioId);
+      return trabajador;
+    });
   }
 
   // --- Asignaciones ----------------------------------------------------------
@@ -290,7 +331,7 @@ export class TrabajadoresService {
   // agrega un campo "potrero actual" a Trabajador — la asignación a potrero
   // solo se consulta desde la propia ficha, no justifica la denormalización.
 
-  async crearAsignacion(tenantId: string, trabajadorId: string, dto: CrearAsignacionDto) {
+  async crearAsignacion(tenantId: string, trabajadorId: string, dto: CrearAsignacionDto, usuarioId: string) {
     const trabajador = await this.obtenerSinAntiguedad(tenantId, trabajadorId);
     if (trabajador.estado !== 'ACTIVO') {
       throw new BadRequestException('No se pueden crear asignaciones para un trabajador inactivo.');
@@ -335,13 +376,24 @@ export class TrabajadoresService {
       if (dto.cargoId) {
         await tx.trabajador.update({ where: { id: trabajadorId }, data: { cargoId: dto.cargoId } });
       }
+      const partes: string[] = [];
+      if (creada.cargo) partes.push(`cargo "${creada.cargo.nombre}"`);
+      if (creada.potrero) partes.push(`potrero "${creada.potrero.nombre}"`);
+      await this.registrarHistorial(
+        tx,
+        tenantId,
+        trabajadorId,
+        'asignacion',
+        `Nueva asignación (${partes.join(', ')})`,
+        usuarioId,
+      );
       return creada;
     });
 
     return { ...nueva, estado: nueva.fechaFin ? 'FINALIZADA' : 'VIGENTE' };
   }
 
-  async finalizarAsignacion(tenantId: string, id: string, dto: FinalizarAsignacionDto) {
+  async finalizarAsignacion(tenantId: string, id: string, dto: FinalizarAsignacionDto, usuarioId: string) {
     const asignacion = await this.prisma.asignacion.findFirst({ where: { id, tenantId } });
     if (!asignacion) {
       throw new NotFoundException('Asignación no encontrada.');
@@ -349,10 +401,21 @@ export class TrabajadoresService {
     if (asignacion.fechaFin) {
       throw new BadRequestException('La asignación ya está finalizada.');
     }
-    return this.prisma.asignacion.update({
-      where: { id },
-      data: { fechaFin: dto.fechaFin ? new Date(dto.fechaFin) : new Date() },
-      include: { cargo: true, potrero: true },
+    return this.prisma.$transaction(async (tx) => {
+      const actualizada = await tx.asignacion.update({
+        where: { id },
+        data: { fechaFin: dto.fechaFin ? new Date(dto.fechaFin) : new Date() },
+        include: { cargo: true, potrero: true },
+      });
+      await this.registrarHistorial(
+        tx,
+        tenantId,
+        asignacion.trabajadorId,
+        'asignacion',
+        'Asignación finalizada',
+        usuarioId,
+      );
+      return actualizada;
     });
   }
 
@@ -458,20 +521,31 @@ export class TrabajadoresService {
     }
     const { tasaCambio, montoEquivalenteUsd } = calcularEquivalenteUsd(dto.moneda, dto.monto, dto.tasaCambio);
 
-    return this.prisma.adelanto.create({
-      data: {
+    return this.prisma.$transaction(async (tx) => {
+      const adelanto = await tx.adelanto.create({
+        data: {
+          tenantId,
+          trabajadorId,
+          fecha: new Date(dto.fecha),
+          monto: dto.monto,
+          moneda: dto.moneda,
+          tasaCambio,
+          montoEquivalenteUsd,
+          motivo: dto.motivo,
+          metodoEntrega: dto.metodoEntrega,
+          observaciones: dto.observaciones,
+          registradoPorId: usuarioId,
+        },
+      });
+      await this.registrarHistorial(
+        tx,
         tenantId,
         trabajadorId,
-        fecha: new Date(dto.fecha),
-        monto: dto.monto,
-        moneda: dto.moneda,
-        tasaCambio,
-        montoEquivalenteUsd,
-        motivo: dto.motivo,
-        metodoEntrega: dto.metodoEntrega,
-        observaciones: dto.observaciones,
-        registradoPorId: usuarioId,
-      },
+        'adelanto',
+        `Adelanto otorgado: ${dto.monto} ${dto.moneda}`,
+        usuarioId,
+      );
+      return adelanto;
     });
   }
 
@@ -493,21 +567,32 @@ export class TrabajadoresService {
     }
     const { tasaCambio, montoEquivalenteUsd } = calcularEquivalenteUsd(dto.moneda, dto.montoOriginal, dto.tasaCambio);
 
-    return this.prisma.prestamo.create({
-      data: {
+    return this.prisma.$transaction(async (tx) => {
+      const prestamo = await tx.prestamo.create({
+        data: {
+          tenantId,
+          trabajadorId,
+          fecha: new Date(dto.fecha),
+          montoOriginal: dto.montoOriginal,
+          moneda: dto.moneda,
+          tasaCambio,
+          montoEquivalenteUsd,
+          numeroCuotas: dto.numeroCuotas,
+          valorCuota: dto.valorCuota,
+          fechaInicio: new Date(dto.fechaInicio),
+          observaciones: dto.observaciones,
+          registradoPorId: usuarioId,
+        },
+      });
+      await this.registrarHistorial(
+        tx,
         tenantId,
         trabajadorId,
-        fecha: new Date(dto.fecha),
-        montoOriginal: dto.montoOriginal,
-        moneda: dto.moneda,
-        tasaCambio,
-        montoEquivalenteUsd,
-        numeroCuotas: dto.numeroCuotas,
-        valorCuota: dto.valorCuota,
-        fechaInicio: new Date(dto.fechaInicio),
-        observaciones: dto.observaciones,
-        registradoPorId: usuarioId,
-      },
+        'prestamo',
+        `Préstamo otorgado: ${dto.montoOriginal} ${dto.moneda} en ${dto.numeroCuotas} cuotas`,
+        usuarioId,
+      );
+      return prestamo;
     });
   }
 
@@ -683,6 +768,15 @@ export class TrabajadoresService {
           data: { prestamoId: item.prestamoId, fecha, monto: item.monto, pagoId: pago.id },
         });
       }
+
+      await this.registrarHistorial(
+        tx,
+        tenantId,
+        trabajadorId,
+        'pago',
+        `Pago confirmado: ${montoTotal.toFixed(2)} ${dto.moneda} (${dto.tipo})`,
+        usuarioId,
+      );
 
       return pago;
     });
@@ -915,6 +1009,49 @@ export class TrabajadoresService {
       buffer,
       contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       filename: `reporte-${tipo}-${fecha}.xlsx`,
+    };
+  }
+
+  async obtenerDashboard(tenantId: string) {
+    const hoy = new Date().toISOString().slice(0, 10);
+    const ahora = new Date();
+    const hace6Meses = new Date(Date.UTC(ahora.getUTCFullYear(), ahora.getUTCMonth() - 5, 1)).toISOString().slice(0, 10);
+
+    const [datosTrabajadores, datosAsistencia, datosPagos, datosCostoLaboral, asistenciaHoy, adelantos, prestamos] =
+      await Promise.all([
+        this.reporteTrabajadores(tenantId),
+        this.reporteAsistencia(tenantId, {}),
+        this.reportePagos(tenantId, {}),
+        this.reporteCostoLaboral(tenantId, { desde: hace6Meses }),
+        this.listarAsistenciaDelDia(tenantId, hoy),
+        this.prisma.adelanto.findMany({ where: { tenantId } }),
+        this.prisma.prestamo.findMany({ where: { tenantId }, include: { abonos: true } }),
+      ]);
+
+    const presentesHoy = asistenciaHoy.filter((d) => d.asistencia?.estado === 'PRESENTE').length;
+    const adelantosPendientes = adelantos.reduce(
+      (acc, a) => acc + Math.max(0, Number(a.monto) - Number(a.montoDescontado)),
+      0,
+    );
+    const prestamosPendientes = prestamos.reduce((acc, p) => {
+      const pagado = p.abonos.reduce((s, ab) => s + Number(ab.monto), 0);
+      return acc + Math.max(0, Number(p.montoOriginal) - pagado);
+    }, 0);
+
+    return {
+      kpis: {
+        totalTrabajadores: datosTrabajadores.resumen.Total,
+        activos: datosTrabajadores.resumen.Activos,
+        presentesHoy,
+        jornadasPeriodo: datosAsistencia.resumen.Jornadas,
+        horasTrabajadas: datosAsistencia.resumen['Horas trabajadas'],
+        totalPagado: datosPagos.resumen['Total pagado (USD equiv.)'],
+        adelantosPendientes: Number(adelantosPendientes.toFixed(2)),
+        prestamosPendientes: Number(prestamosPendientes.toFixed(2)),
+      },
+      trabajadoresPorCargo: datosTrabajadores.tablas[0],
+      costoLaboralPorMes: datosCostoLaboral.tablas[0],
+      asistenciaReciente: datosAsistencia.tablas[0],
     };
   }
 }

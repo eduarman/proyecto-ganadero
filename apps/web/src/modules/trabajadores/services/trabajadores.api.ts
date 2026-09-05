@@ -312,6 +312,33 @@ export interface FiltrosReporteTrabajadorParams {
   hasta?: string;
 }
 
+export interface DashboardTrabajadores {
+  kpis: {
+    totalTrabajadores: number;
+    activos: number;
+    presentesHoy: number;
+    jornadasPeriodo: number;
+    horasTrabajadas: number;
+    totalPagado: number;
+    adelantosPendientes: number;
+    prestamosPendientes: number;
+  };
+  trabajadoresPorCargo: TablaReporteTrabajador;
+  costoLaboralPorMes: TablaReporteTrabajador;
+  asistenciaReciente: TablaReporteTrabajador;
+}
+
+export interface HistorialTrabajador {
+  id: string;
+  tenantId: string;
+  trabajadorId: string;
+  tipo: string;
+  descripcion: string;
+  data: unknown;
+  usuarioId: string;
+  createdAt: string;
+}
+
 export const trabajadoresApi = {
   listarCargos() {
     return http.get<Cargo[]>('/trabajadores/cargos').then((r) => r.data);
@@ -394,5 +421,11 @@ export const trabajadoresApi = {
     return http
       .get(`/trabajadores/reportes/${tipo}/exportar`, { params: { ...params, formato }, responseType: 'blob' })
       .then((r) => r.data as Blob);
+  },
+  obtenerDashboard() {
+    return http.get<DashboardTrabajadores>('/trabajadores/dashboard').then((r) => r.data);
+  },
+  listarHistorial(trabajadorId: string) {
+    return http.get<HistorialTrabajador[]>(`/trabajadores/${trabajadorId}/historial`).then((r) => r.data);
   },
 };

@@ -19,6 +19,7 @@ import {
   type CrearAsignacionPayload,
   type CrearAsistenciaPayload,
   type EstadoAsistencia,
+  type HistorialTrabajador,
   type ModalidadPago,
   type MonedaTrabajador,
   type Pago,
@@ -29,7 +30,7 @@ import {
   type TrabajadorConAntiguedad,
 } from '../services/trabajadores.api';
 
-type FichaTab = 'general' | 'asignaciones' | 'asistencia' | 'adelantos' | 'prestamos' | 'pagos';
+type FichaTab = 'general' | 'asignaciones' | 'asistencia' | 'adelantos' | 'prestamos' | 'pagos' | 'historial';
 const FICHA_TABS: { key: FichaTab; label: string }[] = [
   { key: 'general', label: 'Información general' },
   { key: 'asignaciones', label: 'Asignaciones' },
@@ -37,7 +38,18 @@ const FICHA_TABS: { key: FichaTab; label: string }[] = [
   { key: 'adelantos', label: 'Adelantos' },
   { key: 'prestamos', label: 'Préstamos' },
   { key: 'pagos', label: 'Pagos' },
+  { key: 'historial', label: 'Historial' },
 ];
+
+const TIPO_HISTORIAL_LABELS: Record<string, string> = {
+  alta: 'Alta',
+  edicion: 'Edición',
+  cambio_estado: 'Cambio de estado',
+  asignacion: 'Asignación',
+  pago: 'Pago',
+  adelanto: 'Adelanto',
+  prestamo: 'Préstamo',
+};
 
 const TIPO_PAGO_LABELS: Record<TipoPago, string> = {
   SALARIO: 'Salario',
@@ -91,6 +103,7 @@ const asistencias = ref<Asistencia[]>([]);
 const adelantos = ref<Adelanto[]>([]);
 const prestamos = ref<Prestamo[]>([]);
 const pagos = ref<Pago[]>([]);
+const historial = ref<HistorialTrabajador[]>([]);
 
 const editando = ref(false);
 const form = ref<ActualizarTrabajadorPayload>({});
@@ -112,6 +125,7 @@ async function cargar() {
       adelantosResp,
       prestamosResp,
       pagosResp,
+      historialResp,
     ] = await Promise.all([
       trabajadoresApi.obtener(id),
       trabajadoresApi.listarCargos(),
@@ -121,6 +135,7 @@ async function cargar() {
       trabajadoresApi.listarAdelantos(id),
       trabajadoresApi.listarPrestamos(id),
       trabajadoresApi.listarPagos(id),
+      trabajadoresApi.listarHistorial(id),
     ]);
     trabajador.value = trabajadorResp;
     cargos.value = cargosResp;
@@ -130,6 +145,7 @@ async function cargar() {
     adelantos.value = adelantosResp;
     prestamos.value = prestamosResp;
     pagos.value = pagosResp;
+    historial.value = historialResp;
   } finally {
     loading.value = false;
   }
@@ -1201,6 +1217,17 @@ async function confirmarPago(confirmar = false) {
             <span>{{ TIPO_PAGO_LABELS[p.tipo] }}</span>
             <span class="ficha-trabajador-view__muted">Total: {{ p.montoTotal }} {{ p.moneda }}</span>
             <span v-if="p.observaciones" class="ficha-trabajador-view__muted">{{ p.observaciones }}</span>
+          </div>
+        </div>
+      </SectionCard>
+
+      <SectionCard v-else-if="fichaTab === 'historial'" title="Historial">
+        <div v-if="historial.length === 0" class="ficha-trabajador-view__muted">Sin registros de historial.</div>
+        <div v-else class="ficha-trabajador-view__historial">
+          <div v-for="h in historial" :key="h.id" class="ficha-trabajador-view__historial-row">
+            <span class="ficha-trabajador-view__bold">{{ formatFecha(h.createdAt) }}</span>
+            <span>{{ TIPO_HISTORIAL_LABELS[h.tipo] ?? h.tipo }}</span>
+            <span class="ficha-trabajador-view__muted">{{ h.descripcion }}</span>
           </div>
         </div>
       </SectionCard>

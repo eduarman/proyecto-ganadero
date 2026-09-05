@@ -150,6 +150,16 @@ const router = createRouter({
           },
         },
         {
+          path: 'trabajadores/dashboard',
+          name: 'trabajadores-dashboard',
+          component: () => import('../modules/trabajadores/views/DashboardTrabajadoresView.vue'),
+          meta: {
+            navKey: 'trabajadores',
+            title: 'Dashboard de trabajadores',
+            subtitle: 'Resumen ejecutivo de la mano de obra',
+          },
+        },
+        {
           path: 'trabajadores/reportes',
           name: 'trabajadores-reportes',
           component: () => import('../modules/trabajadores/views/ReportesTrabajadoresView.vue'),

@@ -51,6 +51,10 @@ function buildDeps() {
       findMany: jest.fn().mockResolvedValue([]),
       create: jest.fn(),
     },
+    historialTrabajador: {
+      create: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
     $transaction: undefined as any,
   };
   prisma.$transaction = jest.fn((fn: any) => fn(prisma));
@@ -104,7 +108,7 @@ describe('TrabajadoresService.crear', () => {
     const { service, prisma } = buildDeps();
     prisma.trabajador.findUnique.mockResolvedValue({ id: 'trab-existente' });
 
-    await expect(service.crear(TENANT_A, dtoBase)).rejects.toThrow(ConflictException);
+    await expect(service.crear(TENANT_A, dtoBase, 'user-1')).rejects.toThrow(ConflictException);
     expect(prisma.trabajador.create).not.toHaveBeenCalled();
   });
 
@@ -113,7 +117,7 @@ describe('TrabajadoresService.crear', () => {
     prisma.trabajador.findUnique.mockResolvedValue(null);
     prisma.cargo.findFirst.mockResolvedValue(null);
 
-    await expect(service.crear(TENANT_A, dtoBase)).rejects.toThrow(NotFoundException);
+    await expect(service.crear(TENANT_A, dtoBase, 'user-1')).rejects.toThrow(NotFoundException);
     expect(prisma.trabajador.create).not.toHaveBeenCalled();
   });
 
@@ -122,7 +126,7 @@ describe('TrabajadoresService.crear', () => {
     prisma.trabajador.findUnique.mockResolvedValue(null);
     prisma.cargo.findFirst.mockResolvedValue({ id: 'cargo-1', estado: 'INACTIVO' });
 
-    await expect(service.crear(TENANT_A, dtoBase)).rejects.toThrow(BadRequestException);
+    await expect(service.crear(TENANT_A, dtoBase, 'user-1')).rejects.toThrow(BadRequestException);
     expect(prisma.trabajador.create).not.toHaveBeenCalled();
   });
 
@@ -132,7 +136,7 @@ describe('TrabajadoresService.crear', () => {
     prisma.cargo.findFirst.mockResolvedValue({ id: 'cargo-1', estado: 'ACTIVO' });
     prisma.trabajador.create.mockResolvedValue({ id: 'trab-1', ...dtoBase });
 
-    const resultado = await service.crear(TENANT_A, dtoBase);
+    const resultado = await service.crear(TENANT_A, dtoBase, 'user-1');
 
     expect(resultado.id).toBe('trab-1');
     expect(prisma.trabajador.create).toHaveBeenCalledWith(
@@ -197,7 +201,7 @@ describe('TrabajadoresService.activar / inactivar', () => {
     const { service, prisma } = buildDeps();
     prisma.trabajador.findFirst.mockResolvedValue(null);
 
-    await expect(service.inactivar(TENANT_A, 'trab-1')).rejects.toThrow(NotFoundException);
+    await expect(service.inactivar(TENANT_A, 'trab-1', 'user-1')).rejects.toThrow(NotFoundException);
   });
 
   it('inactivar actualiza el estado a INACTIVO', async () => {
@@ -205,7 +209,7 @@ describe('TrabajadoresService.activar / inactivar', () => {
     prisma.trabajador.findFirst.mockResolvedValue({ id: 'trab-1' });
     prisma.trabajador.update.mockResolvedValue({ id: 'trab-1', estado: 'INACTIVO' });
 
-    await service.inactivar(TENANT_A, 'trab-1');
+    await service.inactivar(TENANT_A, 'trab-1', 'user-1');
 
     expect(prisma.trabajador.update).toHaveBeenCalledWith({ where: { id: 'trab-1' }, data: { estado: 'INACTIVO' } });
   });
@@ -215,7 +219,7 @@ describe('TrabajadoresService.activar / inactivar', () => {
     prisma.trabajador.findFirst.mockResolvedValue({ id: 'trab-1' });
     prisma.trabajador.update.mockResolvedValue({ id: 'trab-1', estado: 'ACTIVO' });
 
-    await service.activar(TENANT_A, 'trab-1');
+    await service.activar(TENANT_A, 'trab-1', 'user-1');
 
     expect(prisma.trabajador.update).toHaveBeenCalledWith({ where: { id: 'trab-1' }, data: { estado: 'ACTIVO' } });
   });
@@ -228,14 +232,14 @@ describe('TrabajadoresService.crearAsignacion', () => {
     const { service, prisma } = buildDeps();
     prisma.trabajador.findFirst.mockResolvedValue(null);
 
-    await expect(service.crearAsignacion(TENANT_A, 'trab-1', dto)).rejects.toThrow(NotFoundException);
+    await expect(service.crearAsignacion(TENANT_A, 'trab-1', dto, 'user-1')).rejects.toThrow(NotFoundException);
   });
 
   it('rechaza con 400 si el trabajador está inactivo', async () => {
     const { service, prisma } = buildDeps();
     prisma.trabajador.findFirst.mockResolvedValue({ id: 'trab-1', estado: 'INACTIVO' });
 
-    await expect(service.crearAsignacion(TENANT_A, 'trab-1', dto)).rejects.toThrow(BadRequestException);
+    await expect(service.crearAsignacion(TENANT_A, 'trab-1', dto, 'user-1')).rejects.toThrow(BadRequestException);
     expect(prisma.asignacion.create).not.toHaveBeenCalled();
   });
 
@@ -244,7 +248,7 @@ describe('TrabajadoresService.crearAsignacion', () => {
     prisma.trabajador.findFirst.mockResolvedValue({ id: 'trab-1', estado: 'ACTIVO' });
 
     await expect(
-      service.crearAsignacion(TENANT_A, 'trab-1', { fechaInicio: '2026-08-01' } as any),
+      service.crearAsignacion(TENANT_A, 'trab-1', { fechaInicio: '2026-08-01' } as any, 'user-1'),
     ).rejects.toThrow(BadRequestException);
     expect(prisma.asignacion.create).not.toHaveBeenCalled();
   });
@@ -255,7 +259,7 @@ describe('TrabajadoresService.crearAsignacion', () => {
     prisma.potrero.findFirst.mockResolvedValue(null);
 
     await expect(
-      service.crearAsignacion(TENANT_A, 'trab-1', { potreroId: 'potrero-1', fechaInicio: '2026-08-01' }),
+      service.crearAsignacion(TENANT_A, 'trab-1', { potreroId: 'potrero-1', fechaInicio: '2026-08-01' }, 'user-1'),
     ).rejects.toThrow(NotFoundException);
   });
 
@@ -271,7 +275,7 @@ describe('TrabajadoresService.crearAsignacion', () => {
       fechaFin: null,
     });
 
-    const resultado = await service.crearAsignacion(TENANT_A, 'trab-1', dto);
+    const resultado = await service.crearAsignacion(TENANT_A, 'trab-1', dto, 'user-1');
 
     expect(prisma.asignacion.update).toHaveBeenCalledWith({
       where: { id: 'asig-anterior' },
@@ -296,7 +300,7 @@ describe('TrabajadoresService.crearAsignacion', () => {
       fechaFin: null,
     });
 
-    await service.crearAsignacion(TENANT_A, 'trab-1', dto);
+    await service.crearAsignacion(TENANT_A, 'trab-1', dto, 'user-1');
 
     expect(prisma.asignacion.update).not.toHaveBeenCalled();
   });
@@ -307,14 +311,14 @@ describe('TrabajadoresService.finalizarAsignacion', () => {
     const { service, prisma } = buildDeps();
     prisma.asignacion.findFirst.mockResolvedValue(null);
 
-    await expect(service.finalizarAsignacion(TENANT_A, 'asig-1', {})).rejects.toThrow(NotFoundException);
+    await expect(service.finalizarAsignacion(TENANT_A, 'asig-1', {}, 'user-1')).rejects.toThrow(NotFoundException);
   });
 
   it('rechaza con 400 si ya está finalizada', async () => {
     const { service, prisma } = buildDeps();
     prisma.asignacion.findFirst.mockResolvedValue({ id: 'asig-1', fechaFin: new Date('2026-08-01') });
 
-    await expect(service.finalizarAsignacion(TENANT_A, 'asig-1', {})).rejects.toThrow(BadRequestException);
+    await expect(service.finalizarAsignacion(TENANT_A, 'asig-1', {}, 'user-1')).rejects.toThrow(BadRequestException);
     expect(prisma.asignacion.update).not.toHaveBeenCalled();
   });
 
@@ -323,7 +327,7 @@ describe('TrabajadoresService.finalizarAsignacion', () => {
     prisma.asignacion.findFirst.mockResolvedValue({ id: 'asig-1', fechaFin: null });
     prisma.asignacion.update.mockResolvedValue({ id: 'asig-1', fechaFin: new Date('2026-08-15') });
 
-    await service.finalizarAsignacion(TENANT_A, 'asig-1', { fechaFin: '2026-08-15' });
+    await service.finalizarAsignacion(TENANT_A, 'asig-1', { fechaFin: '2026-08-15' }, 'user-1');
 
     expect(prisma.asignacion.update).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: 'asig-1' }, data: { fechaFin: new Date('2026-08-15') } }),
@@ -897,5 +901,215 @@ describe('TrabajadoresService.exportarReporte', () => {
 
     expect(exportService.renderPdf).toHaveBeenCalled();
     expect(resultado.contentType).toBe('application/pdf');
+  });
+});
+
+describe('TrabajadoresService.obtenerDashboard', () => {
+  it('combina kpis de los reportes, cuenta presentes hoy y suma solo saldos pendientes', async () => {
+    const { service, prisma } = buildDeps();
+
+    prisma.trabajador.findMany.mockResolvedValue([
+      { id: 't1', estado: 'ACTIVO', cargo: { nombre: 'Ordeñador' } },
+      { id: 't2', estado: 'ACTIVO', cargo: { nombre: 'Ordeñador' } },
+      { id: 't3', estado: 'ACTIVO', cargo: { nombre: 'Caporal' } },
+    ]);
+    prisma.asistencia.findMany.mockResolvedValue([
+      {
+        trabajadorId: 't1',
+        estado: 'PRESENTE',
+        horaEntrada: '08:00',
+        horaSalida: '12:00',
+        trabajador: { nombres: 'Juan', apellidos: 'Pérez' },
+      },
+    ]);
+    prisma.pago.findMany.mockResolvedValue([
+      {
+        moneda: 'USD',
+        montoTotal: '100',
+        montoEquivalenteUsd: null,
+        tipo: 'SALARIO',
+        fecha: new Date('2026-08-05'),
+        trabajador: { nombres: 'Juan', apellidos: 'Pérez' },
+      },
+    ]);
+    prisma.trabajador.count.mockResolvedValue(3);
+    prisma.adelanto.findMany.mockResolvedValue([
+      { monto: '100', montoDescontado: '40' },
+      { monto: '50', montoDescontado: '50' },
+    ]);
+    prisma.prestamo.findMany.mockResolvedValue([
+      { montoOriginal: '200', abonos: [{ monto: '50' }] },
+      { montoOriginal: '80', abonos: [{ monto: '80' }] },
+    ]);
+
+    const resultado = await service.obtenerDashboard(TENANT_A);
+
+    expect(resultado.kpis).toMatchObject({
+      totalTrabajadores: 3,
+      activos: 3,
+      presentesHoy: 1,
+      jornadasPeriodo: 1,
+      horasTrabajadas: 4,
+      totalPagado: 100,
+      adelantosPendientes: 60,
+      prestamosPendientes: 150,
+    });
+    expect(resultado.trabajadoresPorCargo.titulo).toBe('Por cargo');
+    expect(resultado.costoLaboralPorMes.titulo).toBe('Por mes');
+    expect(resultado.asistenciaReciente.titulo).toBe('Por trabajador');
+  });
+});
+
+describe('TrabajadoresService — historial', () => {
+  it('crear registra un historial de tipo alta', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.trabajador.findUnique.mockResolvedValue(null);
+    prisma.cargo.findFirst.mockResolvedValue({ id: 'cargo-1', estado: 'ACTIVO' });
+    prisma.trabajador.create.mockResolvedValue({ id: 'trab-1', ...dtoBase });
+
+    await service.crear(TENANT_A, dtoBase, 'user-1');
+
+    expect(prisma.historialTrabajador.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ trabajadorId: 'trab-1', tipo: 'alta', usuarioId: 'user-1' }) }),
+    );
+  });
+
+  it('actualizar registra un historial de tipo edicion con el dto como data', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.trabajador.findFirst.mockResolvedValue({ id: 'trab-1' });
+    prisma.trabajador.update.mockResolvedValue({ id: 'trab-1' });
+
+    await service.actualizar(TENANT_A, 'trab-1', { nombres: 'Nuevo Nombre' }, 'user-1');
+
+    expect(prisma.historialTrabajador.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          trabajadorId: 'trab-1',
+          tipo: 'edicion',
+          usuarioId: 'user-1',
+          data: { nombres: 'Nuevo Nombre' },
+        }),
+      }),
+    );
+  });
+
+  it('activar/inactivar registran un historial de tipo cambio_estado', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.trabajador.findFirst.mockResolvedValue({ id: 'trab-1' });
+    prisma.trabajador.update.mockResolvedValue({ id: 'trab-1' });
+
+    await service.inactivar(TENANT_A, 'trab-1', 'user-1');
+
+    expect(prisma.historialTrabajador.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ tipo: 'cambio_estado', descripcion: 'Cambio de estado a INACTIVO' }),
+      }),
+    );
+  });
+
+  it('crearAsignacion registra un historial de tipo asignacion', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.trabajador.findFirst.mockResolvedValue({ id: 'trab-1', estado: 'ACTIVO' });
+    prisma.cargo.findFirst.mockResolvedValue({ id: 'cargo-2', estado: 'ACTIVO' });
+    prisma.asignacion.create.mockResolvedValue({
+      id: 'asig-nueva',
+      cargoId: 'cargo-2',
+      cargo: { nombre: 'Caporal' },
+      potrero: null,
+      fechaFin: null,
+    });
+
+    await service.crearAsignacion(TENANT_A, 'trab-1', { cargoId: 'cargo-2', fechaInicio: '2026-08-01' }, 'user-1');
+
+    expect(prisma.historialTrabajador.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ tipo: 'asignacion', descripcion: expect.stringContaining('Caporal') }),
+      }),
+    );
+  });
+
+  it('finalizarAsignacion registra un historial de tipo asignacion', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.asignacion.findFirst.mockResolvedValue({ id: 'asig-1', trabajadorId: 'trab-1', fechaFin: null });
+    prisma.asignacion.update.mockResolvedValue({ id: 'asig-1', fechaFin: new Date('2026-08-15') });
+
+    await service.finalizarAsignacion(TENANT_A, 'asig-1', { fechaFin: '2026-08-15' }, 'user-1');
+
+    expect(prisma.historialTrabajador.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ trabajadorId: 'trab-1', tipo: 'asignacion', descripcion: 'Asignación finalizada' }),
+      }),
+    );
+  });
+
+  it('crearAdelanto registra un historial de tipo adelanto', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.trabajador.findFirst.mockResolvedValue({ id: 'trab-1', estado: 'ACTIVO' });
+    prisma.adelanto.create.mockResolvedValue({ id: 'adel-1' });
+
+    await service.crearAdelanto(
+      TENANT_A,
+      'trab-1',
+      { fecha: '2026-08-01', monto: 50, moneda: 'USD', motivo: 'Prueba' },
+      'user-1',
+    );
+
+    expect(prisma.historialTrabajador.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ tipo: 'adelanto', usuarioId: 'user-1' }) }),
+    );
+  });
+
+  it('crearPrestamo registra un historial de tipo prestamo', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.trabajador.findFirst.mockResolvedValue({ id: 'trab-1', estado: 'ACTIVO' });
+    prisma.prestamo.create.mockResolvedValue({ id: 'prest-1' });
+
+    await service.crearPrestamo(
+      TENANT_A,
+      'trab-1',
+      { fecha: '2026-08-01', montoOriginal: 100, moneda: 'USD', numeroCuotas: 5, valorCuota: 20, fechaInicio: '2026-08-01' },
+      'user-1',
+    );
+
+    expect(prisma.historialTrabajador.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ tipo: 'prestamo', usuarioId: 'user-1' }) }),
+    );
+  });
+
+  it('confirmarPago registra un historial de tipo pago', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.trabajador.findFirst.mockResolvedValue({ id: 'trab-1', estado: 'ACTIVO' });
+    prisma.pago.create.mockResolvedValue({ id: 'pago-1' });
+
+    await service.confirmarPago(
+      TENANT_A,
+      'trab-1',
+      {
+        tipo: 'BONO',
+        periodoDesde: '2026-08-01',
+        periodoHasta: '2026-08-31',
+        montoBase: 100,
+        moneda: 'USD',
+        fecha: '2026-08-31',
+      },
+      'user-1',
+    );
+
+    expect(prisma.historialTrabajador.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ tipo: 'pago', usuarioId: 'user-1' }) }),
+    );
+  });
+
+  it('listarHistorial devuelve el historial del trabajador ordenado por fecha desc', async () => {
+    const { service, prisma } = buildDeps();
+    prisma.trabajador.findFirst.mockResolvedValue({ id: 'trab-1' });
+    prisma.historialTrabajador.findMany.mockResolvedValue([{ id: 'h-1', tipo: 'alta' }]);
+
+    const resultado = await service.listarHistorial(TENANT_A, 'trab-1');
+
+    expect(prisma.historialTrabajador.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { tenantId: TENANT_A, trabajadorId: 'trab-1' }, orderBy: { createdAt: 'desc' } }),
+    );
+    expect(resultado).toEqual([{ id: 'h-1', tipo: 'alta' }]);
   });
 });

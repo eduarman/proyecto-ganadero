@@ -80,6 +80,11 @@ export class TrabajadoresController {
     return new StreamableFile(buffer);
   }
 
+  @Get('dashboard')
+  obtenerDashboard(@CurrentUser() user: JwtPayload) {
+    return this.trabajadoresService.obtenerDashboard(user.tenantId as string);
+  }
+
   @Get()
   listar(@CurrentUser() user: JwtPayload, @Query() query: ListarTrabajadoresQueryDto) {
     return this.trabajadoresService.listar(user.tenantId as string, query);
@@ -87,7 +92,7 @@ export class TrabajadoresController {
 
   @Post()
   crear(@CurrentUser() user: JwtPayload, @Body() dto: CrearTrabajadorDto) {
-    return this.trabajadoresService.crear(user.tenantId as string, dto);
+    return this.trabajadoresService.crear(user.tenantId as string, dto, user.sub);
   }
 
   @Get(':id')
@@ -97,17 +102,17 @@ export class TrabajadoresController {
 
   @Patch(':id')
   actualizar(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Body() dto: ActualizarTrabajadorDto) {
-    return this.trabajadoresService.actualizar(user.tenantId as string, id, dto);
+    return this.trabajadoresService.actualizar(user.tenantId as string, id, dto, user.sub);
   }
 
   @Patch(':id/activar')
   activar(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
-    return this.trabajadoresService.activar(user.tenantId as string, id);
+    return this.trabajadoresService.activar(user.tenantId as string, id, user.sub);
   }
 
   @Patch(':id/inactivar')
   inactivar(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
-    return this.trabajadoresService.inactivar(user.tenantId as string, id);
+    return this.trabajadoresService.inactivar(user.tenantId as string, id, user.sub);
   }
 
   @Get(':id/asignaciones')
@@ -117,7 +122,7 @@ export class TrabajadoresController {
 
   @Post(':id/asignaciones')
   crearAsignacion(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Body() dto: CrearAsignacionDto) {
-    return this.trabajadoresService.crearAsignacion(user.tenantId as string, id, dto);
+    return this.trabajadoresService.crearAsignacion(user.tenantId as string, id, dto, user.sub);
   }
 
   @Patch('asignaciones/:asignacionId/finalizar')
@@ -126,7 +131,12 @@ export class TrabajadoresController {
     @Param('asignacionId') asignacionId: string,
     @Body() dto: FinalizarAsignacionDto,
   ) {
-    return this.trabajadoresService.finalizarAsignacion(user.tenantId as string, asignacionId, dto);
+    return this.trabajadoresService.finalizarAsignacion(user.tenantId as string, asignacionId, dto, user.sub);
+  }
+
+  @Get(':id/historial')
+  listarHistorial(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.trabajadoresService.listarHistorial(user.tenantId as string, id);
   }
 
   @Get(':id/asistencias')
